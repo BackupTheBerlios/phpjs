@@ -1,4 +1,4 @@
-<?php define("JS_VERSION", "0.01001");
+<?php define("JS_VERSION", "0.01010");
 
 /*
   the javascript interpreter for php
@@ -19,7 +19,7 @@
    � js_exec($source_code)                 // simple all-in-one
    � $output = js($source_code)            // alternative
 
-   � js_compile($source_code)              // compile into $bc
+   � jsc::compile($source_code)            // compile into $bc
    � jsi_register_func($js_func_name, $php_func)
    � $jsi_vars["any.name"] = "value"
    � jsi_run()                             // execute the loaded $bc
@@ -174,17 +174,8 @@ function js_exec($codestr, $cleanup=0)
 }
 
 
-function js_compile($codestr, $cleanup=0)
-{
-    #-- cut source code into lexograpic tokens
-    js_lex($codestr);
-    if (JS_DEBUG) {
-       js_delex();
-    }
-
-    #-- parse into bytecode
-    jsp_generate();
-    if ($cleanup) { $GLOBALS["tn"] = NULL; }
+function js_compile($src="", $c=0) {
+   return jsc::compile($src, $c);
 }
 
 
@@ -222,753 +213,767 @@ function js($script=NULL) {
 }
 
 
-
-
-#---------------------------------------------------------------------
-  ##      ####### ##   ## ####### ######
-  ##      ##      ##   ## ##      ##   ##
-  ##      ##       ## ##  ##      ##   ##
-  ##      ######    ###   ######  ######
-  ##      ##       ## ##  ##      ####
-  ##      ##      ##   ## ##      ## ##
-  ##      ##      ##   ## ##      ##  ##
-  ####### ####### ##   ## ####### ##   ##
-#---------------------------------------------------------------------
-
-
-# Cuts the input source text into more easily analyzeable chunks
-# (tokens), each with a type flag associated.
+#-----------------------------------------------------------------------
+#   ____ ___  __  __ ____ ___ _     _____ ____  
+#  / ___/ _ \|  \/  |  _ \_ _| |   | ____|  _ \ 
+# | |  | | | | |\/| | |_) | || |   |  _| | |_) |
+# | |__| |_| | |  | |  __/| || |___| |___|  _ < 
+#  \____\___/|_|  |_|_|  |___|_____|_____|_| \_\
 #
-function js_lex($str) {
 
-   global $types, $types1, $tn, $typetrans, $typetrans_word;
 
-   $tn = array();
+#-- compiler part into its separate namespace
+class jsc {
 
-   #-- make large combined regex
-   $regex = "#^(?:(" . implode(")|(", $types) . "))#";
-   $type = array_keys($types);
-   $typesnum = count($types);
 
-   $str = trim($str);
-   while ($str) {
+   #-- calls lexer and parser
+   function compile($codestr, $cleanup=0)
+   {
+      #-- cut source code into lexograpic tokens
+      jsc::lex($codestr);
+      if (JS_DEBUG) {
+         jsc::delex();
+      }
 
-      #-- split into tokens, guess type by regex
-      if (preg_match($regex, $str, $uu)) {
-         $val = $uu[0];
+      #-- parse into bytecode
+      jsc::parse();
+      if ($cleanup) { $GLOBALS["tn"] = NULL; }
+   }
 
-         $T = JS_ERROR;
-         for ($i=1; $i<=$typesnum; $i++) {
-            if (strlen($uu[$i])) {
-               $T = $type[$i-1];
+
+
+   #-- Cuts the input source text into more easily analyzeable chunks
+   #   (tokens), each with a type flag associated.
+   function lex($str) {
+
+      global $types, $types1, $tn, $typetrans, $typetrans_word;
+
+      $tn = array();
+
+      #-- make large combined regex
+      $regex = "#^(?:(" . implode(")|(", $types) . "))#";
+      $type = array_keys($types);
+      $typesnum = count($types);
+
+      $str = trim($str);
+      while ($str) {
+
+         #-- split into tokens, guess type by regex
+         if (preg_match($regex, $str, $uu)) {
+            $val = $uu[0];
+
+            $T = JS_ERROR;
+            for ($i=1; $i<=$typesnum; $i++) {
+               if (strlen($uu[$i])) {
+                  $T = $type[$i-1];
+                  break;
+            }  }
+         }
+         #-- else it is an one-char token
+         else {
+            $val = $str[0];
+            ($T = $types1[$val]) or ($T = JS_ERROR);
+         }
+
+         #-- unknown token
+         if ($T == JS_ERROR) {
+            jsc::err("cannot handle '".substr($str,0,10)."...'");
+         }
+         
+
+         #-- strip found thingi away from input string
+         $str = substr($str, strlen($val));
+
+
+         #-- special cases to take care of in the lexer 
+         switch ($T) {
+
+            case JS_COMMENT:
+               $str = ltrim($str);
+               continue 2;
                break;
-         }  }
+
+            case JS_STR:
+               $val = substr($val, 1, strlen($val) - 2);
+               break;
+
+            case JS_WORD:
+               $val = strtolower($val);
+               if ($new = $typetrans_word[$val]) {
+                  $T = $new;
+                  $val = NULL;
+               }
+               while ($val[0] == "$") {
+                  $val = substr($val, 1);
+               }
+               break;
+
+            case JS_BOOL:
+               $T = JS_INT;
+               $val = (strlen($val) == 4) ?1:0;
+               break;
+            case JS_INT:
+               $val = (int) $val;
+               break;
+            case JS_REAL:
+               $val = (double) $val;
+               break;
+         }
+
+         #-- valid language token
+         if ($new = $typetrans[$T]) {
+            $tn[] = array($new, $val, $T);
+         }
+         else {
+            $tn[] = array($T, $val);
+         }
+
+
+         $str = ltrim($str);
       }
-      #-- else it is an one-char token
+   }
+
+
+   #-- prints the token streams` contents
+   function delex() {
+      global $tn, $bc;
+      foreach ($tn as $data) {
+         list($T, $str) = $data;
+         if (!strlen($str)) { $str = $T; }
+         echo "$str";
+         if (($T==JS_END) or ($T==JS_CURLYBR0)) {
+            echo "\n";
+         }
+      }
+   }
+
+   #-- prints the tokens (_DEBUG)
+   function print_tokens($tn) {
+      foreach ($tn as $i=>$d) {
+         $t = strlen($d[0])<8 ? "\t" : "";
+         echo "#$i\t$d[0]$t\t$d[1]\t$d[2]\n";
+      }
+   }
+
+
+
+
+
+   #---------------------------------------------------------------------
+     ######   #####  ######   #####  ####### ######
+     ##   ## ##   ## ##   ## ##   ## ##   ## ##   ##
+     ##   ## ##   ## ##   ## ##      ##      ##   ##
+     ######  ####### ######   #####  #####   ######
+     ##      ##   ## ####         ## ##      ####
+     ##      ##   ## ## ##   ##   ## ##      ## ##
+     ##      ##   ## ##  ##  ##   ## ##   ## ##  ##
+     ##      ##   ## ##   ##  #####  ####### ##   ##
+   #---------------------------------------------------------------------
+
+
+
+   #-- get first entry from token stream
+   function get() {
+
+      global $type, $val, $next, $nextval,
+         $jsp_i, $tn;
+
+      $val = $nextval = false;
+      $next = JS_EOF;
+
+      if (isset($tn[$jsp_i])) {
+         list($type, $val) = $tn[$jsp_i];
+      }
       else {
-         $val = $str[0];
-         ($T = $types1[$val]) or ($T = JS_ERROR);
+         $type = JS_END;
+      }
+      if (isset($tn[$jsp_i+1])) {
+         list($next, $nextval) = $tn[$jsp_i+1];
       }
 
-      #-- unknown token
-      if ($T == JS_ERROR) {
-         jsp_err("cannot handle '".substr($str,0,10)."...'");
+      if (JS_DEBUG) {
+         echo "@$jsp_i: t=$type,v=$val,n=$next,nv=$nextval\n";
       }
-      
 
-      #-- strip found thingi away from input string
-      $str = substr($str, strlen($val));
+      $jsp_i++;
+   }
 
 
-      #-- special cases to take care of in the lexer 
-      switch ($T) {
+   # get second entry from token stream, but as current $type
+   #
+   function getnext() {
+      global $jsp_i;
+      jsc::get();
+      $jsp_i--;
+   }
 
-         case JS_COMMENT:
-            $str = ltrim($str);
-            continue 2;
+
+   #-- write an error message (better just collect and bail out later?)
+   function err($s) {
+      echo "\nPARSER ERROR: $s\n";
+   }
+   function bug($s) {
+      jsc::err("this IS A BUG in phpjs: $s");
+   }
+
+
+   # compare current token type (and subtype),
+   # put out an error message, if it does not match desired tags
+   #
+   function expect($t, $str=false, $caller=false) {
+      global $type, $val, $next, $nextval, $jsp_i;
+      if (($type != $t) || (is_array($t) && !in_array($type, $t)) ) {
+   //           || ($str) && ($val != $str)
+         if ($str) {
+            $t = $str;
+            $type = $val;
+         }
+         jsc::err("PARSE ERROR: '$t' expected, but '$type' seen @".($jsp_i-1)
+                 . " by $caller");
+      }
+   }
+
+
+   #-------------------------------------------------------------------------
+
+
+   #-- start point for parsing given script
+   function parse() {
+
+      global $bc, $tn, $jsp_i;
+      $jsp_i = 0;
+
+      #-- initial mini transformations
+      if (JS_DEBUG) {
+         echo "\nall parsed \$tokens:\n";
+         jsc::print_tokens($tn);
+      }
+
+      #-- array of expressions/commands
+      $bc = array();
+
+      #-- parse main program
+      jsc::code_lines($bc["."]);
+
+      if (JS_DEBUG) {
+         echo "\ngenerated \$bytecode = ";
+         print_r($bc);
+      }
+   }
+
+
+
+
+   #---------------------------------------------------------------------
+   #-- expressions
+
+   /*
+     following code uses a token look-ahead paradigm,
+     where $next is examined, and (current) $type
+     usually treaten as the left side argument of any
+     expression
+   */
+
+
+
+   # <assignment> ::= <identifier> <assign_operator> <expr>
+   #
+   function assign(&$var) {
+      if(JS_DEBUG) echo "_ASSIGN\n";
+      global $type, $val, $next, $nextval;
+
+      #-- left side (varname)
+      $r = array(JS_ASSIGN);
+      $r[] = $var;
+      jsc::expect(JS_ASSIGN, 0, "assign");
+
+      #-- combined assignment+operator
+      $math = $val[0];
+      if (($math == "=") || ($math == ":")) {
+         $math = false;
+      }
+
+      #-- right side (expression)
+      if ($math) {
+         $r[] = array(JS_MATH, $r[1], $math, jsc::expr_start());
+      } else {
+         $r[] = jsc::expr_start();
+      }
+
+      return($r);
+   }
+
+
+   # <function_call> ::= <identifier> "(" (<expr> ("," <expr>)* )? ")"
+   #
+   function function_call() {
+      if(JS_DEBUG) echo "_FCALL\n";
+      global $type, $val, $next, $nextval;
+      $r = array(JS_FCALL, $val);
+      jsc::get();
+      jsc::append_list($r, JS_BRACE0);
+      jsc::get();
+      jsc::expect(JS_BRACE0, ")", "function_call");
+      return($r);
+   }
+
+
+   # adds var[expr][expr]
+   #
+   function array_var(&$var) {
+      do {
+         jsc::get();
+         $var[] = jsc::expr_start();
+         jsc::get();
+         jsc::expect(JS_SQBRCKT0, "]", "_array_var");
+      }
+      while ($next == JS_SQBRCKT1);
+   }
+
+
+   # <var_or_func> ::= <idf> | <assignment> | <function_call> | <idf> (++|--)
+   #
+   function var_or_func() {
+      global $type, $val, $next, $nextval;
+
+      if(JS_DEBUG) echo "_VAR\n";
+      jsc::expect(JS_WORD, 0, "var_or_func");
+
+      #-- plain var
+      $var = array(JS_VAR, $val);
+
+      #-- array
+      if ($next == JS_SQBRCKT1) {
+         jsc::array_var($var);
+      }
+
+      #-- actual type
+      if ($next == JS_BRACE1) {
+         return(jsc::function_call());
+      }
+      elseif ($next == JS_ASSIGN) {
+         jsc::get();
+         return(jsc::assign($var));
+      }
+      elseif ($next == JS_OP_PFIX) {
+         jsc::get();
+         return
+            array(JS_ASSIGN, $var, array(JS_MATH, $var, $val[0], 1));
+      }
+      else {
+         return($var);
+      }
+   }
+
+
+   # <pfix_var> ::=  (++ | --) <identifier>
+   # are transformed into regular "var := var (+|-) 1" interpreter stream
+   #
+   function prefix_var() {
+      global $val;
+      $operation = $val[0];
+      jsc::get();
+      $var = jsc::var_or_func();   // bad: we shouldn't get a function here at all!
+      if ($var[0] != JS_VAR) {   // (except if they may return references, hmm??)
+         jsc::err("complex construct where variable reference expected @$GLOBALS[jsp_i]");
+      }
+      return
+         array(JS_ASSIGN, $var,
+            array(JS_MATH, $var, $operation, 1)
+         );
+   }
+
+
+   # <expr_op_unary> ::=   "~" <value>  |  "!" <value>
+   #
+   function expr_op_unary() {
+      global $type, $val, $next, $nextval, $jsp_i;
+      switch ($val) {
+         case "~":
+         case "!":
+         case "+":
+         case "-":
+            return array(JS_MATH, 0, $val, jsc::expr_value());
+         default:
+            jsc::bug("unary operator mistake");
+      }
+   }
+
+
+   # <value> ::= "(" <expr> ")" | <var_or_func> | <constant> | <expr_op_unary>
+   #
+   function expr_value($uu=0) {
+      global $type, $val, $next, $nextval, $jsp_i;
+
+      jsc::get();
+      switch ($type) {
+
+         case JS_BRACE1:
+            if(JS_DEBUG) echo "_(\n";
+            jsc::expect(JS_BRACE1, "(", "_expr_value");
+            $r = jsc::expr_start();
+            jsc::get();
+            jsc::expect(JS_BRACE0, ")", "_expr_value");
+            return($r);
             break;
 
-         case JS_STR:
-            $val = substr($val, 1, strlen($val) - 2);
+         case JS_OP_PFIX:
+            return jsc::prefix_var();
+            break;
+
+         case JS_OP_UNARY:
+         case JS_OP_PLUS:
+            return jsc::expr_op_unary();
             break;
 
          case JS_WORD:
-            $val = strtolower($val);
-            if ($new = $typetrans_word[$val]) {
-               $T = $new;
-               $val = NULL;
-            }
-            while ($val[0] == "$") {
-               $val = substr($val, 1);
-            }
-            break;
-
-         case JS_BOOL:
-            $T = JS_INT;
-            $val = (strlen($val) == 4) ?1:0;
-            break;
-         case JS_INT:
-            $val = (int) $val;
-            break;
-         case JS_REAL:
-            $val = (double) $val;
-            break;
-      }
-
-      #-- valid language token
-      if ($new = $typetrans[$T]) {
-         $tn[] = array($new, $val, $T);
-      }
-      else {
-         $tn[] = array($T, $val);
-      }
-
-
-      $str = ltrim($str);
-   }
-}
-
-
-# prints the token streams` contents
-#
-function js_delex() {
-   global $tn, $bc;
-   foreach ($tn as $data) {
-      list($T, $str) = $data;
-      if (!strlen($str)) { $str = $T; }
-      echo "$str";
-      if (($T==JS_END) or ($T==JS_CURLYBR0)) {
-         echo "\n";
-      }
-   }
-}
-
-
-# prints the tokens (_DEBUG)
-#
-function jsp_print_tn($tn) {
-   foreach ($tn as $i=>$d) {
-      $t = strlen($d[0])<8 ? "\t" : "";
-      echo "#$i\t$d[0]$t\t$d[1]\t$d[2]\n";
-   }
-}
-
-
-
-
-
-#---------------------------------------------------------------------
-  ######   #####  ######   #####  ####### ######
-  ##   ## ##   ## ##   ## ##   ## ##   ## ##   ##
-  ##   ## ##   ## ##   ## ##      ##      ##   ##
-  ######  ####### ######   #####  #####   ######
-  ##      ##   ## ####         ## ##      ####
-  ##      ##   ## ## ##   ##   ## ##      ## ##
-  ##      ##   ## ##  ##  ##   ## ##   ## ##  ##
-  ##      ##   ## ##   ##  #####  ####### ##   ##
-#---------------------------------------------------------------------
-
-
-# get first entry from token stream
-#
-function jsp_get() {
-
-   global $type, $val, $next, $nextval,
-      $jsp_i, $tn;
-
-   $val = $nextval = false;
-   $next = JS_EOF;
-
-   if (isset($tn[$jsp_i])) {
-      list($type, $val) = $tn[$jsp_i];
-   }
-   else {
-      $type = JS_END;
-   }
-   if (isset($tn[$jsp_i+1])) {
-      list($next, $nextval) = $tn[$jsp_i+1];
-   }
-
-   if (JS_DEBUG) {
-      echo "@$jsp_i: t=$type,v=$val,n=$next,nv=$nextval\n";
-   }
-
-   $jsp_i++;
-}
-
-
-# get second entry from token stream, but as current $type
-#
-function jsp_getnext() {
-   global $jsp_i;
-   jsp_get();
-   $jsp_i--;
-}
-
-
-# write an error message
-#
-function jsp_err($s) {
-   echo "\nPARSER ERROR: $s\n";
-}
-function jsp_bug($s) {
-   jsp_err("this IS A BUG in phpjs: $s");
-}
-
-
-# compare current token type (and subtype),
-# put out an error message, if it does not match desired tags
-#
-function jsp_expect($t, $str=false, $caller=false) {
-   global $type, $val, $next, $nextval, $jsp_i;
-   if (($type != $t) || (is_array($t) && !in_array($type, $t)) ) {
-//           || ($str) && ($val != $str)
-      if ($str) {
-         $t = $str;
-         $type = $val;
-      }
-      jsp_err("PARSE ERROR: '$t' expected, but '$type' seen @".($jsp_i-1)
-              . " by $caller");
-   }
-}
-
-
-#-------------------------------------------------------------------------
-
-
-# parse whole script
-#
-function jsp_generate() {
-
-   global $bc, $tn, $jsp_i;
-   $jsp_i = 0;
-
-   #-- initial mini transformations
-   if (JS_DEBUG) {
-      echo "\nall parsed \$tokens:\n";
-      jsp_print_tn($tn);
-   }
-
-   #-- array of expressions/commands
-   $bc = array();
-
-   #-- parse main program
-   jsp_code_lines($bc["."]);
-
-   if (JS_DEBUG) {
-      echo "\ngenerated \$bytecode = ";
-      print_r($bc);
-   }
-}
-
-
-
-
-#---------------------------------------------------------------------
-#-- expressions
-
-/*
-  following code uses a token look-ahead paradigm,
-  where $next is examined, and (current) $type
-  usually treaten as the left side argument of any
-  expression
-*/
-
-
-
-# <assignment> ::= <identifier> <assign_operator> <expr>
-#
-function jsp_assign(&$var) {
-   if(JS_DEBUG) echo "_ASSIGN\n";
-   global $type, $val, $next, $nextval;
-
-   #-- left side (varname)
-   $r = array(JS_ASSIGN);
-   $r[] = $var;
-   jsp_expect(JS_ASSIGN, 0, "assign");
-
-   #-- combined assignment+operator
-   $math = $val[0];
-   if (($math == "=") || ($math == ":")) {
-      $math = false;
-   }
-
-   #-- right side (expression)
-   if ($math) {
-      $r[] = array(JS_MATH, $r[1], $math, jsp_expr_start());
-   } else {
-      $r[] = jsp_expr_start();
-   }
-
-   return($r);
-}
-
-
-# <function_call> ::= <identifier> "(" (<expr> ("," <expr>)* )? ")"
-#
-function jsp_function_call() {
-   if(JS_DEBUG) echo "_FCALL\n";
-   global $type, $val, $next, $nextval;
-   $r = array(JS_FCALL, $val);
-   jsp_get();
-   jsp_append_list($r, JS_BRACE0);
-   jsp_get();
-   jsp_expect(JS_BRACE0, ")", "function_call");
-   return($r);
-}
-
-
-# adds var[expr][expr]
-#
-function jsp_array_var(&$var) {
-   do {
-      jsp_get();
-      $var[] = jsp_expr_start();
-      jsp_get();
-      jsp_expect(JS_SQBRCKT0, "]", "_array_var");
-   }
-   while ($next == JS_SQBRCKT1);
-}
-
-
-# <var_or_func> ::= <idf> | <assignment> | <function_call> | <idf> (++|--)
-#
-function jsp_var_or_func() {
-   global $type, $val, $next, $nextval;
-
-   if(JS_DEBUG) echo "_VAR\n";
-   jsp_expect(JS_WORD, 0, "var_or_func");
-
-   #-- plain var
-   $var = array(JS_VAR, $val);
-
-   #-- array
-   if ($next == JS_SQBRCKT1) {
-      jsp_array_var($var);
-   }
-
-   #-- actual type
-   if ($next == JS_BRACE1) {
-      return(jsp_function_call());
-   }
-   elseif ($next == JS_ASSIGN) {
-      jsp_get();
-      return(jsp_assign($var));
-   }
-   elseif ($next == JS_OP_PFIX) {
-      jsp_get();
-      return
-         array(JS_ASSIGN, $var, array(JS_MATH, $var, $val[0], 1));
-   }
-   else {
-      return($var);
-   }
-}
-
-
-# <pfix_var> ::=  (++ | --) <identifier>
-# are transformed into regular "var := var (+|-) 1" interpreter stream
-#
-function jsp_prefix_var() {
-   global $val;
-   $operation = $val[0];
-   jsp_get();
-   $var = jsp_var_or_func();   // bad: we shouldn't get a function here at all!
-   if ($var[0] != JS_VAR) {   // (except if they may return references, hmm??)
-      jsp_err("complex construct where variable reference expected @$GLOBALS[jsp_i]");
-   }
-   return
-      array(JS_ASSIGN, $var,
-         array(JS_MATH, $var, $operation, 1)
-      );
-}
-
-
-# <expr_op_unary> ::=   "~" <value>  |  "!" <value>
-#
-function jsp_expr_op_unary() {
-   global $type, $val, $next, $nextval, $jsp_i;
-   switch ($val) {
-      case "~":
-      case "!":
-      case "+":
-      case "-":
-         return array(JS_MATH, 0, $val, jsp_expr_value());
-      default:
-         jsp_bug("unary operator mistake");
-   }
-}
-
-
-# <value> ::= "(" <expr> ")" | <var_or_func> | <constant> | <expr_op_unary>
-#
-function jsp_expr_value($uu=0) {
-   global $type, $val, $next, $nextval, $jsp_i;
-
-   jsp_get();
-   switch ($type) {
-
-      case JS_BRACE1:
-         if(JS_DEBUG) echo "_(\n";
-         jsp_expect(JS_BRACE1, "(", "_expr_value");
-         $r = jsp_expr_start();
-         jsp_get();
-         jsp_expect(JS_BRACE0, ")", "_expr_value");
-         return($r);
-         break;
-
-      case JS_OP_PFIX:
-         return jsp_prefix_var();
-         break;
-
-      case JS_OP_UNARY:
-      case JS_OP_PLUS:
-         return jsp_expr_op_unary();
-         break;
-
-      case JS_WORD:
-         return jsp_var_or_func();
-         break;
-
-      default:
-         if(JS_DEBUG) echo "_CONST\n";
-         jsp_expect(JS_VALUE, 0, "_expr_value");
-         return(array(JS_VALUE, $val));
-   }
-}
-
-
-#-- expression grammar
-#   (defines the precedence of operators)
-$jsp_expr_math = array(
-   JS_OP_BOOL_OR,
-   JS_OP_BOOL_AND,
-   JS_OP_BIT,
-   JS_OP_PLUS,
-   JS_OP_MULTI,
-);
-# <expr_multiply>  ::=  <_value> | <_value> (*|/|%) <_value>
-# <expr_plusminus> ::=  <_multiply> | <_multiply> (+|-) <_multiply>
-# <expr_bitop>     ::=  <_plusminus> | <_plusminus> (&|^|"|") <_plusminus>
-# <expr_booland>   ::=  <_bitop> | <_bitop> ("&&") <_bitop>
-# <expr_boolor>    ::=  <_booland> | <_booland> ("||") <_booland>
-
-
-# ABSTRACT <expr_math> ::=  <_value> | <_value> (OPERATOR) <_value>
-#
-function jsp_expr_math($num=0) {
-   global $type, $val, $next, $nextval, $jsp_expr_math;
-
-   $upfunc = "jsp_expr_math";
-   $OPERATOR = $jsp_expr_math[$num];
-   $num++;
-   if ($OPERATOR==JS_OP_MULTI) {
-      $upfunc = "jsp_expr_value";
-   }
-
-   #-- get first expression
-   $A = $upfunc($num);
-
-   #-- check for (expected) operator
-   if ($next == $OPERATOR) {
-      $r = array(
-         JS_MATH,
-         $A,
-      );
-      while ($next == $OPERATOR) {
-         jsp_get();
-         $r[] = $val;   // +,- or *,/,% or &&,|| or
-         $r[] = $upfunc($num);
-      }
-      return($r);
-   }
-   else {
-      return($A);
-   }
-}
-
-
-# <expr> ::= <_math> | <_math> (">=" | "<=" | "==" | ">" | "<" | "!=") <_math>
-#
-function jsp_expr_cmp() {
-   global $type, $val, $next, $nextval, $jsp_expr_math;
-
-   #-- get left side expression
-   $A = jsp_expr_math();
-
-   #-- check for comparision operator
-   if ($next == JS_OP_CMP) {
-      jsp_get();
-      $r = array(
-         JS_CMP,
-         $A,
-         $val,
-      );
-      $r[] = jsp_expr_math();
-      return($r);
-   }
-   else {
-      return($A);
-   }
-}
-
-
-#   <expr> ::= <expr_plusminus>
-#
-function jsp_expr_start() {
-   return jsp_expr_cmp();
-}
-
-
-
-
-
-#---------------------------------------------------------------------
-#-- language constructs
-
-/*
-  unlike the expression code above, the following
-  language construct analyzation functions don't
-  have yet a filled-in $type, but in real called
-  jsp_getnext() to have the values for the next
-  token in $type and $val (pre-examine)
-
-  therefore the language construct functions (except
-  _block and _lines) usually start stripping the
-  first token with jsp_get()
-*/
-
-
-# extracts a comma separated list (of expressions)
-#
-function jsp_append_list(&$bc, $term=JS_END, $comma=JS_COMMA) {
-   global $type, $val, $next, $nextval;
-   while (($next!=$term) && ($next!=JS_EOF)) {
-      $bc[] = jsp_expr_start();
-      if ($next == $comma) {
-         jsp_get();
-      }
-   }
-}
-
-
-# a break; statement
-#
-function jsp_constr_break(&$bc) {
-   global $type, $val, $next, $nextval;
-
-   #-- remove token
-   jsp_get();   # "break"
-   $r = array(JS_BREAK, 1);
-
-   #-- ";" or expression/value follows
-   if ($next != JS_END) {
-      $r[1] = jsp_expr_start();
-   }
-   $bc = $r;
-}
-
-
-# chunk a for() loop
-#
-function jsp_constr_for(&$bc) {
-
-   #-- remove tokens, get list (<expr>; <expr>; <expr>)
-   jsp_get();   # "for"
-   jsp_get();   # "("
-   jsp_expect(JS_BRACE1, "(", "_constr_for0");
-   $r = array();
-   jsp_append_list($r, JS_BRACE0, JS_END);
-   jsp_get();   # remove closing brace
-   if (count($r) != 3) {
-      jsp_err("there must be exactly three arguments in a for() loop");
-   }
-
-   #-- initial expression goes into the bc stream (before the JS_FOR entry)
-   $bc[] = $r[0];
-   $r[0] = JS_FOR;   # convert into bytecode stream for jsi_
-   $r[3] = array();  # append code block
-   jsp_block($r[3]);
-   $bc[] = $r;       # output into stream
-}
-
-
-# if statement
-#
-function jsp_constr_if(&$bc) {
-   global $type, $val, $next, $nextval;
-
-   $r = array(JS_COND, JS_IF);  # if-conditional in bytecode
-
-   #-- loop through if() and elseif() conditions and blocks
-   while (($type==JS_IF) || ($next==JS_ELSEIF)) {
-
-      #-- remove tokens
-      jsp_get();   # "if" or "elseif" or "else"
-      $is = $type;
-      jsp_get();   # "("
-      jsp_expect(JS_BRACE1, "(", "_constr_if");
-
-      #-- generate bc stream
-      $r[] = jsp_expr_start();
-      $r[] = array();
-      jsp_get();   # ")"
-      jsp_expect(JS_BRACE0, ")", "_constr_if2");
-      jsp_block($r[count($r)-1]);
-   }
-   
-   #-- optional else block
-   if ($type==JS_ELSE) {
-      jsp_get();
-      $r[] = array(JS_VALUE, 1);
-      $r[] = array();
-      jsp_block($r[count($r)-1]);
-   }
-
-   $bc[] = $r;
-}
-
-
-# while statement
-#
-function jsp_constr_while(&$bc) {
-   global $type, $val, $next, $nextval;
-
-   #-- remove tokens
-   jsp_get();   # "while"
-   jsp_get();   # "("
-   jsp_expect(JS_BRACE1, "(", "_constr_while");
-
-   #-- while-conditional in bytecode
-   $r = array(
-      JS_COND,
-      JS_WHILE,
-      jsp_expr_start(),
-      array()    // placeholder
-   );
-   jsp_get();   # ")"
-   jsp_expect(JS_BRACE0, ")", "_constr_while2");
-   jsp_block($r[3]);
-
-   $bc[] = $r;
-}
-
-
-# do statement
-#
-function jsp_constr_do(&$bc) {
-   global $type, $val, $next, $nextval;
-   #-- generate bc stream
-   $r = array(
-      JS_COND,
-      JS_DO,
-      0,        // placeholder
-      array()   // placeholder
-   );
-   #-- remove tokens
-   jsp_get();   # "do"
-   $r[1] = array();
-   jsp_block($r[3]);
-   #-- while post condition
-   jsp_get();   # "while"
-   jsp_expect(JS_WHILE, false, "_constr_repeat");
-   jsp_get();   # "("
-   jsp_expect(JS_BRACE1, "(", "_constr_repeat2");
-   $r[2] = jsp_expr_start();
-   jsp_get();   # ")"
-   jsp_expect(JS_BRACE0, ")", "_constr_repeat3");
-   #-- add to parent bytecode stream
-   $bc[] = $r;
-}
-
-
-# runtime/lang functions (echo, print)
-#
-function jsp_constr_rt(&$bc) {
-   global $type, $val, $next, $nextval;
-   $r = array(JS_RT, $type);
-   jsp_get();
-   jsp_append_list($r, JS_END);
-   $bc[] = $r;
-}
-
-
-# reads one command/expr/line;
-#
-function jsp_code_lines(&$bc, $term=JS_END) {
-   global $type, $val, $next, $nextval;
-
-   jsp_getnext();
-   while ($type && ($type!=$term)) {
-
-      switch($type) {
-
-         case JS_CURLYBR1:
-            $bc[] = array();
-            $jsp_block($bc[count($bc)-1]);
-            break;
-         case JS_CURLYBR0:
-            return;
-
-         case JS_BREAK:
-            jsp_constr_break($bc);
-
-         case JS_FOR:
-            jsp_constr_for($bc);
-            break;
-
-         case JS_IF:
-            jsp_constr_if($bc);
-            break;
-         case JS_WHILE:
-            jsp_constr_while($bc);
-            break;
-         case JS_DO:
-            jsp_constr_do($bc);
-            break;
-
-         case JS_PRINT:
-            jsp_constr_rt($bc);
-            break;
-
-         case JS_END:
+            return jsc::var_or_func();
             break;
 
          default:
-            $bc[] = jsp_expr_start();
+            if(JS_DEBUG) echo "_CONST\n";
+            jsc::expect(JS_VALUE, 0, "_expr_value");
+            return(array(JS_VALUE, $val));
       }
-
-      #-- end of line
-      while ($next == JS_END) {
-         jsp_get();
-      }
-      if ($type==JS_CURLYBR0) {
-         jsp_getnext();
-         return;
-      }
-
-      jsp_getnext();
    }
-}
 
 
-# parses a block of code
-#
-function jsp_block(&$bc, $term=JS_CURLYBR0) {
-   global $type, $val, $next, $nextval;
 
-   jsp_get();
-   jsp_expect(JS_CURLYBR1, "{", "_block_{");
 
-   $bc = array();
-   jsp_code_lines($bc, $term);
-#echo "_P_BLOCK,$type,$next:\n";
-#print_r($bc);
+   # ABSTRACT <expr_math> ::=  <_value> | <_value> (OPERATOR) <_value>
+   #
+   function expr_math($num=0) {
+      global $type, $val, $next, $nextval;
 
-   jsp_get();
-   jsp_expect(JS_CURLYBR0, "}", "_block_}");
-   jsp_getnext();
-}
+      #-- expression grammar
+      #   (defines the precedence of operators)
+      static $jsp_expr_math = array(
+         JS_OP_BOOL_OR,
+         JS_OP_BOOL_AND,
+         JS_OP_BIT,
+         JS_OP_PLUS,
+         JS_OP_MULTI,
+      );
+      # <expr_multiply>  ::=  <_value> | <_value> (*|/|%) <_value>
+      # <expr_plusminus> ::=  <_multiply> | <_multiply> (+|-) <_multiply>
+      # <expr_bitop>     ::=  <_plusminus> | <_plusminus> (&|^|"|") <_plusminus>
+      # <expr_booland>   ::=  <_bitop> | <_bitop> ("&&") <_bitop>
+      # <expr_boolor>    ::=  <_booland> | <_booland> ("||") <_booland>
+      //
+
+      $upfunc = "expr_math";
+      $OPERATOR = $jsp_expr_math[$num];
+      $num++;
+      if ($OPERATOR==JS_OP_MULTI) {
+         $upfunc = "expr_value";
+      }
+
+      #-- get first expression
+      $A = jsc::$upfunc($num);
+
+      #-- check for (expected) operator
+      if ($next == $OPERATOR) {
+         $r = array(
+            JS_MATH,
+            $A,
+         );
+         while ($next == $OPERATOR) {
+            jsc::get();
+            $r[] = $val;   // +,- or *,/,% or &&,|| or
+            $r[] = jsc::$upfunc($num);
+         }
+         return($r);
+      }
+      else {
+         return($A);
+      }
+   }
+
+
+   # <expr> ::= <_math> | <_math> (">=" | "<=" | "==" | ">" | "<" | "!=") <_math>
+   #
+   function expr_cmp() {
+      global $type, $val, $next, $nextval;
+
+      #-- get left side expression
+      $A = jsc::expr_math();
+
+      #-- check for comparision operator
+      if ($next == JS_OP_CMP) {
+         jsc::get();
+         $r = array(
+            JS_CMP,
+            $A,
+            $val,
+         );
+         $r[] = jsc::expr_math();
+         return($r);
+      }
+      else {
+         return($A);
+      }
+   }
+
+
+   #   <expr> ::= <expr_plusminus>
+   #
+   function expr_start() {
+      return jsc::expr_cmp();
+   }
+
+
+
+
+
+   #---------------------------------------------------------------------
+   #-- language constructs
+
+   /*
+     unlike the expression code above, the following
+     language construct analyzation functions don't
+     have yet a filled-in $type, but in real called
+     jsc::getnext() to have the values for the next
+     token in $type and $val (pre-examine)
+
+     therefore the language construct functions (except
+     _block and _lines) usually start stripping the
+     first token with jsc::get()
+   */
+
+
+   # extracts a comma separated list (of expressions)
+   #
+   function append_list(&$bc, $term=JS_END, $comma=JS_COMMA) {
+      global $type, $val, $next, $nextval;
+      while (($next!=$term) && ($next!=JS_EOF)) {
+         $bc[] = jsc::expr_start();
+         if ($next == $comma) {
+            jsc::get();
+         }
+      }
+   }
+
+
+   # a break; statement
+   #
+   function constr_break(&$bc) {
+      global $type, $val, $next, $nextval;
+
+      #-- remove token
+      jsc::get();   # "break"
+      $r = array(JS_BREAK, 1);
+
+      #-- ";" or expression/value follows
+      if ($next != JS_END) {
+         $r[1] = jsc::expr_start();
+      }
+      $bc = $r;
+   }
+
+
+   # chunk a for() loop
+   #
+   function constr_for(&$bc) {
+
+      #-- remove tokens, get list (<expr>; <expr>; <expr>)
+      jsc::get();   # "for"
+      jsc::get();   # "("
+      jsc::expect(JS_BRACE1, "(", "_constr_for0");
+      $r = array();
+      jsc::append_list($r, JS_BRACE0, JS_END);
+      jsc::get();   # remove closing brace
+      if (count($r) != 3) {
+         jsc::err("there must be exactly three arguments in a for() loop");
+      }
+
+      #-- initial expression goes into the bc stream (before the JS_FOR entry)
+      $bc[] = $r[0];
+      $r[0] = JS_FOR;   # convert into bytecode stream for jsi_
+      $r[3] = array();  # append code block
+      jsc::block($r[3]);
+      $bc[] = $r;       # output into stream
+   }
+
+
+   # if statement
+   #
+   function constr_if(&$bc) {
+      global $type, $val, $next, $nextval;
+
+      $r = array(JS_COND, JS_IF);  # if-conditional in bytecode
+
+      #-- loop through if() and elseif() conditions and blocks
+      while (($type==JS_IF) || ($next==JS_ELSEIF)) {
+
+         #-- remove tokens
+         jsc::get();   # "if" or "elseif" or "else"
+         $is = $type;
+         jsc::get();   # "("
+         jsc::expect(JS_BRACE1, "(", "_constr_if");
+
+         #-- generate bc stream
+         $r[] = jsc::expr_start();
+         $r[] = array();
+         jsc::get();   # ")"
+         jsc::expect(JS_BRACE0, ")", "_constr_if2");
+         jsc::block($r[count($r)-1]);
+      }
+      
+      #-- optional else block
+      if ($type==JS_ELSE) {
+         jsc::get();
+         $r[] = array(JS_VALUE, 1);
+         $r[] = array();
+         jsc::block($r[count($r)-1]);
+      }
+
+      $bc[] = $r;
+   }
+
+
+   # while statement
+   #
+   function constr_while(&$bc) {
+      global $type, $val, $next, $nextval;
+
+      #-- remove tokens
+      jsc::get();   # "while"
+      jsc::get();   # "("
+      jsc::expect(JS_BRACE1, "(", "_constr_while");
+
+      #-- while-conditional in bytecode
+      $r = array(
+         JS_COND,
+         JS_WHILE,
+         jsc::expr_start(),
+         array()    // placeholder
+      );
+      jsc::get();   # ")"
+      jsc::expect(JS_BRACE0, ")", "_constr_while2");
+      jsc::block($r[3]);
+
+      $bc[] = $r;
+   }
+
+
+   # do statement
+   #
+   function constr_do(&$bc) {
+      global $type, $val, $next, $nextval;
+      #-- generate bc stream
+      $r = array(
+         JS_COND,
+         JS_DO,
+         0,        // placeholder
+         array()   // placeholder
+      );
+      #-- remove tokens
+      jsc::get();   # "do"
+      $r[1] = array();
+      jsc::block($r[3]);
+      #-- while post condition
+      jsc::get();   # "while"
+      jsc::expect(JS_WHILE, false, "_constr_repeat");
+      jsc::get();   # "("
+      jsc::expect(JS_BRACE1, "(", "_constr_repeat2");
+      $r[2] = jsc::expr_start();
+      jsc::get();   # ")"
+      jsc::expect(JS_BRACE0, ")", "_constr_repeat3");
+      #-- add to parent bytecode stream
+      $bc[] = $r;
+   }
+
+
+   # runtime/lang functions (echo, print)
+   #
+   function constr_rt(&$bc) {
+      global $type, $val, $next, $nextval;
+      $r = array(JS_RT, $type);
+      jsc::get();
+      jsc::append_list($r, JS_END);
+      $bc[] = $r;
+   }
+
+
+   # reads one command/expr/line;
+   #
+   function code_lines(&$bc, $term=JS_END) {
+      global $type, $val, $next, $nextval;
+
+      jsc::getnext();
+      while ($type && ($type!=$term)) {
+
+         switch($type) {
+
+            case JS_CURLYBR1:
+               $bc[] = array();
+               jsc::block($bc[count($bc)-1]);
+               break;
+            case JS_CURLYBR0:
+               return;
+
+            case JS_BREAK:
+               jsc::constr_break($bc);
+
+            case JS_FOR:
+               jsc::constr_for($bc);
+               break;
+
+            case JS_IF:
+               jsc::constr_if($bc);
+               break;
+            case JS_WHILE:
+               jsc::constr_while($bc);
+               break;
+            case JS_DO:
+               jsc::constr_do($bc);
+               break;
+
+            case JS_PRINT:
+               jsc::constr_rt($bc);
+               break;
+
+            case JS_END:
+               break;
+
+            default:
+               $bc[] = jsc::expr_start();
+         }
+
+         #-- end of line
+         while ($next == JS_END) {
+            jsc::get();
+         }
+         if ($type==JS_CURLYBR0) {
+            jsc::getnext();
+            return;
+         }
+
+         jsc::getnext();
+      }
+   }
+
+
+   # parses a block of code
+   #
+   function block(&$bc, $term=JS_CURLYBR0) {
+      global $type, $val, $next, $nextval;
+
+      jsc::get();
+      jsc::expect(JS_CURLYBR1, "{", "_block_{");
+
+      $bc = array();
+      jsc::code_lines($bc, $term);
+   #echo "_P_BLOCK,$type,$next:\n";
+   #print_r($bc);
+
+      jsc::get();
+      jsc::expect(JS_CURLYBR0, "}", "_block_}");
+      jsc::getnext();
+   }
+
+
+} // end of class
 
 
 #---------------------------------------------------------------------

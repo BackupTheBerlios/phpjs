@@ -38,7 +38,8 @@ of missing features, please see on top of the "js.php" library.
    2     usage overview
    2.1   interfaces
    2.2   bytecode buffering
-   2.3   constants/settings
+   2.3   utilizing the accelerator
+   2.4   constants/settings
 
    3     extending
    3.1   adding functions
@@ -54,9 +55,9 @@ of missing features, please see on top of the "js.php" library.
 1.2 acknowledgements
     ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
 This interpreter makes use of the techniques Jack W. Crenshaw layed out in
-his "Let's build a compiler!" series, which are still available for download
-and remain the most interesting lecture on that topic (see also UseNet group
-news:comp.compilers).
+his "Let's build a compiler!" series. That book is still available (free) for
+download and remains one of the most interesting writings on that topic. See
+also UseNet group news:comp.compilers or http://compilers.iecc.com/crenshaw/
 
 
 1.3 license
@@ -102,10 +103,13 @@ The so called interpreter is divided into different parts to make it
 easier to load only the appropriate components when neccessary:
 
   js.php     the core script holds the minimal configuration and
-             run time settings, required by all other parts
+             run time settings, required by all other parts; if you
+             leave it out, then you'd simply get the slower (verbose)
+             bytecode and lose the js_exec() and js() interfaces
 
   jsc.php    contains the compiler (lexer, parser), that transforms
-             script source code into 'bytecode'
+             script source code into very unoptimized 'bytecode' into
+             the global $bc[] variable
 
   jsi.php    is the pure interpreter, which can walk over the bytecode
              and execute and evaluate all commands and expressions it
@@ -125,7 +129,10 @@ will automatically load the other four parts for you. (But you could use
 the 'mkbig' utility to join all five into one unified include script.)
 
 The "jsrt.php" is required for both, executing the bytecode via jsi::
-or executing the sandbox code produced by the jsa:: converter.
+or executing the sandbox code produced by the jsa:: converter. It could
+as well have been merged with the main "js.php" script, but as the jsa
+transformed sandbox-php-code does not require the JS_* constants, it looks
+much cleaner this way.
 
 
 2.1 interfaces
@@ -159,8 +166,9 @@ interpreter the other time).
 
    jsc::compile($src)
    ----------------
-      Only compiles the given $src code string into the global '$bc'
-      bytecode variable.
+      Only compiles the given $src code string into the global $bc[]
+      bytecode variable. Uses other global variables like $tn on the
+      way, but cleans most of it up afterwards.
 
    jsi::run()
    ---------
@@ -175,7 +183,7 @@ interpreter the other time).
 
    jsa::assemble()
    ---------------
-      Converts the loaded $bc (or given script source string) into
+      Converts the loaded $bc[] (or given script source string) into
       sandboxed PHP code for later execution via PHPs eval() construct.
       But please see the "jsa.php" script for that.
 
@@ -192,7 +200,7 @@ steps as follows:
 
     1)  pass the source code to:
 
-          js_compile($string);
+          jsc::compile($string);
 
     2)  save the generated pre-bytecode from the global "$bc"
         variable (into a file or database)
@@ -201,7 +209,7 @@ steps as follows:
         pre-bytecode back into the global "$bc" variable,
         and calling:
 
-          jsi_run();
+          jsi::run();
 
         (Of course you wouldn't reload the bytecode from disk
         in the round you had actually generated it.)
@@ -211,7 +219,39 @@ or js_block), and afterwards save it. This way you would get the optimized
 code from $bc (which is still available after return from the interpreter).
 
 
-2.3 constants/settings
+2.3 utilizing the accelerator
+    ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
+The accelerator (in "jsa.php") in fact complements the compiler, but you
+can also see it simply as replacement for the interpreter (jsi::run()
+calls). To benefit from the speed advantages it brings, you simply would
+do the following:
+
+  jsc::compile($js_source);
+  $php_code = jsa:assemble();  // from $bc
+  eval($php_code);
+
+or even shorter:
+
+  $php_code = jsa::assemble($js_source);
+  eval($php_code);
+
+The conversion is rather speedy, so you could postpone the final conversion
+step until you really need it. That is, you let jsc::compile() fill the $bc
+variable, buffer that, and feed it through eval(jsa::assemble()); when
+needed. This is only slightly slower than buffering the generated $php_code,
+but adds a lot to security, because it is rather harmless if someone
+injected faked bytecode by overwriting your cached files; other than if you
+would store the $php_code to disk and hope noone had write-permission to
+it (typical php setup in mind here).
+
+Keep in mind, that to compile existing bytecode, you needed to have "js.php"
+and "jsa.php" loaded. But to execute the resulting sandboxed $php_code, you
+needed to include the "jsrt.php" script.
+Therefore you could simply cache the transformed $php_code prefaced by a
+a copy of "jsrt.php" into one cache file to make it completely stand-alone.
+
+
+2.4 constants/settings
     ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
 There is limited configurability in phpjs, but no real language behaviour
 switch until yet (even if JS_PHPMODE suggests this).
@@ -431,5 +471,5 @@ yet (what was written previously here was far too code specific).
 - more speaking function names (::assert instead of ::expect, and ::want
   as new shortcut)
 - added switch/case construct, fix in jsc::constr_break 
-
+- updated documentation
 

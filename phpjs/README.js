@@ -574,5 +574,6 @@ count for real world applicitons.
 
 0.01001
 - parameters to registered functions are passed by reference now, generally
-
+- fix in JS_IF tree handling (multiple could get executed)
+- introduction of the sandbox code generator jsa::
 

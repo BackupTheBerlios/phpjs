@@ -1156,8 +1156,9 @@ function jsi_cn_cond(&$bc) {
       for ($i=2; $i<count($bc); $i+=2) {
          if (jsi_expr($bc[$i])) {
             jsi_block($bc[$i+1]);
+            if ($jsi_break && $jsi_break--) { return; }
+            break;   // execute always only one tree
          }
-         if ($jsi_break && $jsi_break--) { return; }
       }
    }
    #-- while

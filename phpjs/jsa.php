@@ -12,38 +12,47 @@
     - $php_code = jsa::assemble();
     - $php_code = jsa::assemble($js_source_code);  // this only works,
                           // if the compiler "jsc.php" is also present
-   
+
    To actually execute the generated $php_code somewhen later, you also (or
    only) need to have the "jsrt.php" part loaded:
     - eval($php_code);
+    
+   orig. author: <mario*erphesfurt,de>
+   contributions: Eric Anderton <ericanderton*yahoo,com>: var, functions
 */
 
 
 define("JSA_FUNC_PREFIX", "js_ufnc_");
-
+define("NEWLINE", "\n");
 
 #-- everything encapsulated into a static class (a namespace more or less)
 class jsa {
 
 
    #-- transformation starts here
-   function assemble($js_src="") {
-      global $bc;
-      
+   function assemble($js_src="", $ticks=0) {
+      global $bc, $is_function, $force_create, $jsa_loop_inject;
+      $is_function = 'false';
+      $force_create = 'false';
+      $jsa_loop_inject = $ticks ? ' && !isset($jsi_die)' : '';
+
       #-- compile into $bc
       if ($js_src) {
-         js_compile($src);
+         jsc::compile($js_src);
       }
 
       #-- functions
-      $o = "\n/* compiled by phpjs accelerator */\n\n";
+      //$o = "\n/* compiled by phpjs accelerator */\n\n";
+      $o = "";
       foreach ($bc as $funcname=>$code) {
-      
+
          #-- main code block
-         if ($funcname==".") {
-            $o .= jsa::block($bc[$funcname]);
+         if ($funcname == ".") {
+         $o.="#.MAIN\n";
+            $o .= jsa::block($bc[$funcname],false);
          }
          else {
+         $o.="#FUNCDEF\n";
             $o .= jsa::func_def($funcname, $bc[$funcname]);
          }
       }
@@ -55,14 +64,17 @@ class jsa {
 
    #-- error while transforming into sandboxed PHP code
    function err($MSG) {
-      die("jsa: $MSG");
+      die("jsa::err('$MSG')\n");
    }
-   
-   
+
+
    #-- a block of code (expressions / language constructs)
-   function block(&$bc) {
-      $o = "{\n";
-      
+   function block(&$bc, $use_braces=true) {
+      static $bn=0;
+      $bn++;
+      $o = "";
+
+      #-- multiple lines in every block
       for ($pc=0; $pc<=count($bc); $pc++) {
          if (is_array($bc[$pc]))  // else it is a plain value in void context
          switch ($bc[$pc][0]) {
@@ -73,6 +85,9 @@ class jsa {
            case JS_VALUE:
            case JS_VAR:
               $o .= jsa::expr($bc[$pc]) . ";\n";
+              break;
+           case JS_VAR_STATEMENT:
+              $o .= jsa::constr_var($bc[$pc]);
               break;
            case JS_FOR:
               $o .= jsa::constr_for($bc[$pc]);
@@ -89,6 +104,12 @@ class jsa {
            case JS_BREAK:
               $o .= jsa::constr_break($bc[$pc]);
               break;
+           case JS_RETURN:
+              $o .= jsa::constr_return($bc[$pc]);
+              break;
+           case JS_FUNCDEF:
+              $o .= jsa::constr_funcdef($bc[$pc]);
+              break;
            default:
               if (is_array($bc[$pc])) {
                  $o .= jsa::block($bc[$pc]);
@@ -98,8 +119,10 @@ class jsa {
               }
          }
       }
-      
-      $o .= "}\n";
+
+      if ($use_braces) {
+         $o = "{\n" . $o . "}\n";
+      }
       return($o);
    }
 
@@ -107,23 +130,40 @@ class jsa {
    #------------------------------------------------------------------
    #-- language constructs
 
+
    #-- break statement
    function constr_break(&$bc) {
-      return(" break $bc[1];\n");
+      return("break $bc[1];\n");
+   }
+
+   #-- return statement
+   function constr_return(&$bc) {
+      return('return('.jsa::expr($bc[1]).');'.NEWLINE);
+   }
+
+   #-- var statement
+   function constr_var(&$bc){
+      $o = 'jsrt::rt_var(array(\''.$bc[1].'\'),false,true)';
+      if (count($bc)==3) {
+         $o = 'jsrt::assign('.$o.','.jsa::expr($bc[2]).')';
+      }
+      return $o.";\n";
    }
 
    #-- for-loop
    function constr_for(&$bc) {
+      global $jsa_loop_inject;
       return
          "/* was a FOR-loop */\n"
-         . "while (" . jsa::expr($bc[1])  . ") {\n"
+         . "while ((" . jsa::expr($bc[1])  . ")$jsa_loop_inject) {\n"
          . jsa::block($bc[3])
-         . jsa::expr($bc[2]) . "\n}\n";
+         . jsa::expr($bc[2]) . ";\n}\n";
    }
 
 
    #-- conditional loops, code blocks
    function constr_cond(&$bc) {
+      global $jsa_loop_inject;
       $o = "";
 
       #-- IF
@@ -136,13 +176,13 @@ class jsa {
       }
       #-- WHILE
       elseif ($bc[1] == JS_WHILE) {
-         $o .= "while (" . jsa::expr($bc[2]) . ")"
+         $o .= "while ((" . jsa::expr($bc[2]) . ")$jsa_loop_inject)"
             . jsa::block($bc[3]);
       }
       #-- DO
       elseif ($bc[1] == JS_DO) {
          $o .= "do " . jsa::block($bc[3])
-            . " while (" . jsa_expr($bc[2]) . ");\n";
+            . " while ((" . jsa_expr($bc[2]) . ")$jsa_loop_inject);\n";
       }
 
       return $o;
@@ -171,17 +211,53 @@ class jsa {
       array_shift($bc);
       $func = array_shift($bc);
       $o = "";
-      foreach ($bc as $arg) {
+      if (empty($bc)) {
+         $o .= "/* js_rt_func_ without args! */\n";
+      }
+      else foreach ($bc as $arg) {
          $arg = jsa::expr($arg);
          switch ($func) {
             case JS_PRINT:
-               $o .= "print $arg;\n";
+               $o .= 'print '. $arg .";\n";
+               break;
             default:
+               $o .= "/* js_rt_func_($func, $arg) */\n";
+               break;
          }
       }
       return($o);
    }
 
+
+   #-- function definitons (everything beside $bc["."])
+   function constr_funcdef($bc){
+      $o .= 'jsrt::assign(jsrt::rt_var(array(\''.$bc[1].'\'),true,true),jsrt::ref(\''.$bc[1].'\'));'.NEWLINE;
+      $o .= 'function &jsrt_'.$bc[1];
+
+      $args = array();
+      $parameters = &$bc[2];
+      $preamble = "";
+
+      for ($i=0; isset($parameters[$i]); $i++) {
+         $name = $parameters[$i][0];
+         $argument = '$'.$name;
+         if($parameters[$i][1] != null){
+             $argument .= '='.$parameters[$i][1];
+         }
+         else{
+            $argument .= '=null';
+         }
+         $args[] = $argument;
+         $preamble .= NEWLINE.'jsrt::set_arg(\''.$name.'\',$'.$name.');';
+      }
+
+      $args = implode(",", $args);
+
+      $o .= '('.$args.'){'.$preamble.NEWLINE;
+      $o .= jsa::block($bc[3]).'}';
+
+      return($o);
+   }
 
 
    #-------------------------------------------------------------------
@@ -192,19 +268,30 @@ class jsa {
    #-- always yields link into $jsi_vars[] array
    function variable(&$bc)
    {
-      // does not handle special (old) name.name.name variables
-      
+      global $is_function,$force_create;
+
       $varname = addslashes($bc[1]);
-      $o = '$jsi_vars["' . $varname . '"]';
+      $namespace = "";
+
+      $old_is_function = $is_function;
+      $is_function = 'false';
+
+      $parts = split('\.',$varname);
+      foreach($parts as $part){
+        $namespace .= '\'' . $part . '\',';
+      }
 
       #-- additional array indicies
       for ($i=2; isset($bc[$i]); $i++) {
-         $o .= "[" . jsi_expr($bc[$i]) . "]";
+         $namespace .= jsa::expr($bc[$i]).',';
       }
+      $namespace = substr($namespace,0,-1);
+
+      $is_function = $old_is_function;
+      $o = 'jsrt::rt_var(array('.$namespace.'),'.$is_function.','.$force_create.')';
 
       return($o);
    }
-
 
 
    #-------------------------------------------------------------------
@@ -217,20 +304,23 @@ class jsa {
       // "$tjfn" stands for temporary-javascript-function-name
       // needs to get more complicated for OO/type features
 
-      $args = array(); 
+      $args = array();
       for ($i=2; isset($bc[$i]); $i++) {
          $args[] = jsa::expr($bc[$i]);
       }
-      $args = implode(", ", $args);
+      $args = implode(",", $args);
       $pfix = JSA_FUNC_PREFIX;
       $variable = array(JS_VAR, $bc[1]);
-      
-      $o = '(($tjfn = ' . jsa::variable($variable)
-         . ') ? ('
-         . 'in_array($js_funcs, $tjfn) or (strpos($tjfn, '.$pfix.')===0)'
-         . ' ? $tjfn('.$args.') : jsrt::error("forbidden function call")'
-         . ') : NULL)';
-      
+
+      global $is_function;
+      $is_function = 'true';
+      if(count($bc) > 2){
+          $o = 'jsrt::fcall('.jsa::variable($variable).',array('.$args.'))';
+      }
+      else{
+        $o = 'jsrt::fcall('.jsa::variable($variable).',array())';
+      }
+      $is_function = 'false';
       return $o;
    }
 
@@ -238,23 +328,26 @@ class jsa {
    #-- variable := assignment
    function assign(&$bc)
    {
-      return
-         "(" . jsa::variable($bc[1]) . "=" . jsa::expr($bc[2]) . ")";
+      global $force_create;
+
+      $force_create = 'true';
+      $lvalue = jsa::variable($bc[1]);
+      $force_create = 'false';
+      return 'jsrt::assign('.$lvalue.','.jsa::expr($bc[2]).')';
    }
 
 
-
-   #-- evaluate the pre-arranged (parser did it all) expressions
+   #-- evaluate the pre-arranged (parser-did-it-all) expressions
    function math(&$bc) {
       $o = "";
-   
+
       #-- walk through contained elements
       for ($i=0; $i<count($bc); $i+=2) {
 
-	 #-- current expression         
+         #-- current expression
          $op = $bc[$i];
          $add = jsa::expr($bc[$i+1]);
-        
+
          #-- change operator
          if (JS_PHPMODE && ($op=="+")) {
             // ooops, we cannot change that behaviour at will anymore
@@ -284,7 +377,7 @@ class jsa {
       $op = $bc[2];
       $A = jsa::expr($bc[1]);
       $B = jsa::expr($bc[3]);
-      return "($A $op $B)";
+      return 'jsrt::bool('."$A $op $B".')';
    }
 
 
@@ -298,7 +391,8 @@ class jsa {
             case JS_ASSIGN: return jsa::assign($bc);
             case JS_MATH:   return jsa::math($bc);
             case JS_CMP:    return jsa::cmp($bc);
-            case JS_VALUE:  return jsa::expr($bc[1]);
+            case JS_STR:    return 'jsrt::ref('.jsa::expr($bc[1]).')';
+            case JS_VALUE:  return 'jsrt::ref('.jsa::expr($bc[1]).')';
             case JS_VAR:    return jsa::variable($bc);
             case JS_FCALL:  return jsa::fcall($bc);
             default:

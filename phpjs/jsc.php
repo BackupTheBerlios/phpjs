@@ -1,12 +1,12 @@
 <?php
 /*
-    ####   ####  ##   ## ##### #### ##     ###### #####   
-   ##  ## ##  ## ### ### ##  ## ##  ##     ##     ##  ##  
-   ##     ##  ## ####### ##  ## ##  ##     ##     ##  ##  
-   ##     ##  ## ## # ## #####  ##  #      ####   #####   
-   ##     ##  ## ##   ## ##     ##  ##     ##     ####    
-   ##  ## ##  ## ##   ## ##     ##  ##     ##     ## ##   
-    ####   ####  ##   ## ##    #### ###### ###### ##  ##  
+    ####   ####  ##   ## ##### #### ##     ###### #####
+   ##  ## ##  ## ### ### ##  ## ##  ##     ##     ##  ##
+   ##     ##  ## ####### ##  ## ##  ##     ##     ##  ##
+   ##     ##  ## ## # ## #####  ##  #      ####   #####
+   ##     ##  ## ##   ## ##     ##  ##     ##     ####
+   ##  ## ##  ## ##   ## ##     ##  ##     ##     ## ##
+    ####   ####  ##   ## ##    #### ###### ###### ##  ##
 
    phpjs compiler (lexer, parser)
    ------------------------------
@@ -14,8 +14,9 @@
    in the global $bc variable.
 */
 
+global $has_errors;
+$has_errors = false;
 
-                                                          
 #-- compiler part into separate namespace
 class jsc {
 
@@ -23,7 +24,7 @@ class jsc {
    #-- calls lexer and parser
    function compile($codestr, $cleanup=0)
    {
-      global $type, $val, $next, $nextval, $jsp_i;
+      global $type, $val, $next, $nextval, $jsp_i,$has_errors;
 
       #-- cut source code into lexograpic tokens
       jsc::lex($codestr);
@@ -36,10 +37,11 @@ class jsc {
       {
          jsc::parse();
       }
-      if ($cleanup) { 
+      if ($cleanup) {
          unset($GLOBALS["tn"]);
       }
       list($type, $val, $next, $nextval, $jsp_i) = $rescue;
+      return $has_errors;
    }
 
 
@@ -50,22 +52,22 @@ class jsc {
 
       global $tn;
       $tn = array();
-      
+
       #-- regular expressions to detect tokens
       static $types = array(
-         JS_REAL	=> '\d+\.\d+',
-         JS_INT	=> '\d+',
-         JS_BOOL	=> '(?i:TRUE|FALSE)',
-         JS_WORD	=> '\$?[_A-Za-z]+(?:\.?[_\w]+)*',
-         JS_STR	=> '(?:\"[^\"]*?\"|\'[^\']*?\')',
-         JS_COMMENT	=> '(?:/\*.*?\*/|//[^\n]*)',
-         JS_OP_CMP	=> '(?:[<>]=?|[=!]==?)',
-         JS_ASSIGN	=> '(?:[-/%&|^*+:]=|=)',
-         JS_OP_PFIX	=> '(?:\+\+|--)',
-         JS_OP_MULTI	=> '[*/%.]',
+         JS_REAL    => '\d+\.\d+',
+         JS_INT => '\d+',
+         JS_BOOL    => '(?i:TRUE|FALSE)',
+         JS_WORD    => '\$?[_A-Za-z]+(?:\.?[_\w]+)*',
+         JS_STR => '(?:\"[^\"]*?\"|\'[^\']*?\')',
+         JS_COMMENT => '(?:/\*.*?\*/|//[^\n]*)',
+         JS_OP_CMP  => '(?:[<>]=?|[=!]==?)',
+         JS_ASSIGN  => '(?:[-/%&|^*+:]=|=)',
+         JS_OP_PFIX => '(?:\+\+|--)',
+         JS_OP_MULTI    => '[*/%.]',
          JS_OP_BOOL_AND => '&&',
          JS_OP_BOOL_OR => '\|\|',
-         JS_OP_BIT	=> '[&|^]',
+         JS_OP_BIT  => '[&|^]',
          // else $types1
       );
       static $types1 = array(
@@ -97,6 +99,7 @@ class jsc {
          "while" => JS_WHILE,
          "do" => JS_DO,
          "break" => JS_BREAK,
+         "return" => JS_RETURN,
          "if" => JS_IF,
          "else" => JS_ELSE,
          "elseif" => JS_ELSEIF,
@@ -105,6 +108,7 @@ class jsc {
          "default" => JS_DEFAULT,
          "echo" => JS_PRINT,
          "print" => JS_PRINT,
+         "var" => JS_VAR_STATEMENT,
       );
 
       #-- make large combined regex
@@ -136,13 +140,13 @@ class jsc {
          if ($T == JS_ERROR) {
             jsc::err("cannot handle '".substr($str,0,10)."...'");
          }
-         
+
 
          #-- strip found thingi away from input string
          $str = substr($str, strlen($val));
 
 
-         #-- special cases to take care of in the lexer 
+         #-- special cases to take care of in the lexer
          switch ($T) {
 
             case JS_COMMENT:
@@ -152,6 +156,8 @@ class jsc {
 
             case JS_STR:
                $val = substr($val, 1, strlen($val) - 2);
+//@WARNING1@
+               $val = str_replace("\'","\\\'",$val); // encode string so it can be wrapped in quotes
                break;
 
             case JS_WORD:
@@ -227,7 +233,7 @@ class jsc {
    #-- get first entry from token stream
    function get() {
 
-      global $type, $val, $next, $nextval,
+      global $type, $val, $subtype, $next, $nextval,
          $jsp_i, $tn;
 
       $val = $nextval = false;
@@ -235,6 +241,9 @@ class jsc {
 
       if (isset($tn[$jsp_i])) {
          list($type, $val) = $tn[$jsp_i];
+         if($type == JS_VALUE){
+            $subtype = $tn[$jsp_i][2]; // capture the subtype for values
+         }
       }
       else {
          $type = JS_END;
@@ -261,6 +270,8 @@ class jsc {
 
    #-- write an error message (better just collect and bail out later?)
    function err($s) {
+      global $has_errors;
+      $has_errors = true;
       echo "\nPARSER ERROR: $s\n";
    }
    function bug($s) {
@@ -283,7 +294,7 @@ class jsc {
                  . " by $caller");
       }
    }
-   
+
    #-- combined get() and assert()
    function want($t, $str=false, $caller=false) {
       jsc::get();
@@ -324,21 +335,21 @@ class jsc {
 
 
    /*
-     ###### #   ## #####  #####  ###### ####   #### #### ####  ##  ##  ####   
-     ##     ##  ## ##  ## ##  ## ##    ##  ## ##  ## ## ##  ## ### ## ##  ##  
-     ##      ####  ##  ## ##  ## ##    ##     ##     ## ##  ## ###### ##      
-     ####     ##   #####  #####  ####   ####   ####  ## ##  ## ######  ####   
-     ##      ####  ##     ####   ##        ##     ## ## ##  ## ## ###     ##  
-     ##     ##  ## ##     ## ##  ##    ##  ## ##  ## ## ##  ## ##  ## ##  ##  
-     ###### ##  ## ##     ##  ## ###### ####   #### #### ####  ##  ##  ####   
-                                                                              
+     ###### #   ## #####  #####  ###### ####   #### #### ####  ##  ##  ####
+     ##     ##  ## ##  ## ##  ## ##    ##  ## ##  ## ## ##  ## ### ## ##  ##
+     ##      ####  ##  ## ##  ## ##    ##     ##     ## ##  ## ###### ##
+     ####     ##   #####  #####  ####   ####   ####  ## ##  ## ######  ####
+     ##      ####  ##     ####   ##        ##     ## ## ##  ## ## ###     ##
+     ##     ##  ## ##     ## ##  ##    ##  ## ##  ## ## ##  ## ##  ## ##  ##
+     ###### ##  ## ##     ##  ## ###### ####   #### #### ####  ##  ##  ####
+
 
      following code uses a token look-ahead paradigm,
      where $next is examined, and (current) $type
      usually treaten as the left side argument of any
      expression
    */
-                      
+
 
 
    #-- <assignment> ::= <identifier> <assign_operator> <expr>
@@ -460,7 +471,7 @@ class jsc {
 
    #-- <value> ::= "(" <expr> ")" | <var_or_func> | <constant> | <expr_op_unary>
    function expr_value($uu=0) {
-      global $type, $val, $next, $nextval, $jsp_i;
+      global $type, $val, $subtype, $next, $nextval, $jsp_i;
 
       jsc::get();
       switch ($type) {
@@ -489,6 +500,7 @@ class jsc {
          default:
             if(JS_DEBUG) echo "_CONST\n";
             jsc::assert(JS_VALUE, 0, "_expr_value");
+            if($subtype == JS_STR) return(array(JS_VALUE, "'$val'"));
             return(array(JS_VALUE, $val));
       }
    }
@@ -536,6 +548,7 @@ class jsc {
             jsc::get();
             $r[] = $val;   // +,- or *,/,% or &&,|| or
             $r[] = jsc::$upfunc($num);
+
          }
          return($r);
       }
@@ -578,21 +591,21 @@ class jsc {
 
 
 
-     ##       ##   ##  ##  ####  ##  ##   ##    ####  ######  
-     ##      ####  ### ## ##  ## ##  ##  ####  ##  ## ##      
-     ##     ##  ## ###### ##     ##  ## ##  ## ##     ##      
-     #      ###### ###### ## ### ##  ## ###### ## ### ####    
-     ##     ##  ## ## ### ##  ## ##  ## ##  ## ##  ## ##      
-     ##     ##  ## ##  ## ##  ## ##  ## ##  ## ##  ## ##      
-     ###### ##  ## ##  ##  ####   ####  ##  ##  ####  ######  
-                                                              
-      ####   ####  ##  ##  #### ###### #####  ##  ##  #### ###### ####   
-     ##  ## ##  ## ### ## ##  ##  ##   ##  ## ##  ## ##  ##  ##  ##  ##  
-     ##     ##  ## ###### ##      ##   ##  ## ##  ## ##      ##  ##      
-     ##     ##  ## ######  ####   ##   #####  ##  ## ##      ##   ####   
-     ##     ##  ## ## ###     ##  ##   ####   ##  ## ##      ##      ##  
-     ##  ## ##  ## ##  ## ##  ##  ##   ## ##  ##  ## ##  ##  ##  ##  ##  
-      ####   ####  ##  ##  ####   ##   ##  ##  ####   ####   ##   ####   
+     ##       ##   ##  ##  ####  ##  ##   ##    ####  ######
+     ##      ####  ### ## ##  ## ##  ##  ####  ##  ## ##
+     ##     ##  ## ###### ##     ##  ## ##  ## ##     ##
+     #      ###### ###### ## ### ##  ## ###### ## ### ####
+     ##     ##  ## ## ### ##  ## ##  ## ##  ## ##  ## ##
+     ##     ##  ## ##  ## ##  ## ##  ## ##  ## ##  ## ##
+     ###### ##  ## ##  ##  ####   ####  ##  ##  ####  ######
+
+      ####   ####  ##  ##  #### ###### #####  ##  ##  #### ###### ####
+     ##  ## ##  ## ### ## ##  ##  ##   ##  ## ##  ## ##  ##  ##  ##  ##
+     ##     ##  ## ###### ##      ##   ##  ## ##  ## ##      ##  ##
+     ##     ##  ## ######  ####   ##   #####  ##  ## ##      ##   ####
+     ##     ##  ## ## ###     ##  ##   ####   ##  ## ##      ##      ##
+     ##  ## ##  ## ##  ## ##  ##  ##   ## ##  ##  ## ##  ##  ##  ##  ##
+      ####   ####  ##  ##  ####   ##   ##  ##  ####   ####   ##   ####
 
    /*
      unlike the expression code above, the following
@@ -626,6 +639,21 @@ class jsc {
       #-- remove token
       jsc::get();   # "break"
       $r = array(JS_BREAK, 1);
+
+      #-- ";" or expression/value follows
+      if ($next != JS_END) {
+         $r[1] = jsc::expr_start();
+      }
+      $bc[] = $r;
+   }
+
+   #-- a return; statement
+   function constr_return(&$bc) {
+      global $type, $val, $next, $nextval;
+
+      #-- remove token
+      jsc::get();   # "return"
+      $r = array(JS_RETURN, 1);
 
       #-- ";" or expression/value follows
       if ($next != JS_END) {
@@ -675,15 +703,26 @@ class jsc {
          $r[] = jsc::expr_start();
          $r[] = array();
          jsc::want(JS_BRACE0, ")", "_constr_if2"); # ")"
-         jsc::block($r[count($r)-1]);
+
+         if($next == JS_CURLYBR1){
+            jsc::block($r[count($r)-1]);
+         }
+         else{
+            jsc::code_lines($r[count($r)-1]);
+         }
       }
-      
+
       #-- optional else block
       if ($type==JS_ELSE) {
          jsc::get();
          $r[] = array(JS_VALUE, 1);
          $r[] = array();
-         jsc::block($r[count($r)-1]);
+         if($next == JS_CURLYBR1){
+            jsc::block($r[count($r)-1],true);
+         }
+         else{
+            jsc::code_lines($r[count($r)-1]);
+         }
       }
 
       $bc[] = $r;
@@ -786,15 +825,79 @@ class jsc {
       $bc[] = $r;
    }
 
+   function constr_var(&$bc){
+      global $type, $val, $next, $nextval;
+      $r = array(JS_VAR_STATEMENT);
+      jsc::want(JS_VAR_STATEMENT,false,"_constr_var0");
+      jsc::want(JS_WORD,false,"_constr_var1");
+      $r[] = $val;
+      jsc::get();
+      switch($type){
+      case JS_ASSIGN:
+        jsc::append_list($r, JS_END);
+        break;
+      case JS_END:
+        break;
+      default:
+        jsc::assert(JS_END,false,"_constr_var2");
+      }
+      $bc[] = $r;
+   }
+
+   function constr_func(&$bc){
+      global $type, $val, $next, $nextval;
+
+      $r = array(JS_FUNCDEF);
+      jsc::get();
+
+      jsc::want(JS_WORD,"identifier","_constr_func0");
+      $r[] = $val;
+
+      jsc::want(JS_BRACE1,"(","_constr_func1");
+
+      if($next == JS_WORD){
+        $args = array();
+
+        while (($next!=JS_BRACE0) && ($next!=JS_EOF)) {
+          jsc::want(JS_WORD,"argument","_constr_func_arg");
+          $lvalue = $val;
+
+          if($next == JS_ASSIGN){
+             jsc::get();
+             jsc::want(JS_VALUE,"constant","_constr_func_arg_default");
+             $rvalue = $val;
+          }
+          else $rvalue = null;
+
+          $args[] = array($lvalue,$rvalue);
+
+          if ($next == JS_COMMA) {
+             jsc::get();
+          }
+        }
+        $r[] = $args;
+      }
+      else{
+        $r[] = null;
+      }
+      jsc::want(JS_BRACE0,")","_constr_func2");
+
+      $r[] = array();
+      jsc::block($r[count($r)-1]);
+
+      $bc[] = $r;
+   }
+
 
    #-- reads one command/expr/line;
    function code_lines(&$bc, $term=JS_END) {
       global $type, $val, $next, $nextval;
       $term = (array)$term;
 
+
       jsc::getnext();
       while ($type && !in_array($type, $term)) {
-
+         #echo("code_lines debug: [$type,$val,$next]<br/>");
          switch($type) {
 
             case JS_CURLYBR1:
@@ -806,6 +909,10 @@ class jsc {
 
             case JS_BREAK:
                jsc::constr_break($bc);
+               break;
+
+            case JS_RETURN:
+               jsc::constr_return($bc);
                break;
 
             case JS_FOR:
@@ -831,7 +938,18 @@ class jsc {
                jsc::constr_rt($bc);
                break;
 
+            case JS_VAR_STATEMENT:
+               jsc::constr_var($bc);
+               break;
+
+            case JS_FUNCDEF:
+               jsc::constr_func($bc);
+               break;
+
             case JS_END:
+               break;
+
+            case JS_EOF:
                break;
 
             default:
@@ -854,16 +972,18 @@ class jsc {
 
 
    #-- parses a block of code
-   function block(&$bc, $term=JS_CURLYBR0, $need_braces=1) {
+   function block(&$bc, $term=JS_CURLYBR0, $need_braces=true) {
       global $type, $val, $next, $nextval;
 
       if ($need_braces) {
          jsc::want(JS_CURLYBR1, "{", "_block_{");
       }
+   #echo "_P_BLOCK,$type,$val,$next:\n";
+   #print_r($bc);
 
       $bc = array();
       jsc::code_lines($bc, $term);
-   #echo "_P_BLOCK,$type,$next:\n";
+   #echo "_P_BLOCK,$type,$val,$next:\n";
    #print_r($bc);
 
       if ($need_braces) {

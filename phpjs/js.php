@@ -32,7 +32,7 @@
   - object contexts and 'new' operator
   - local variable contexts
   - string expansion with PHP $variables and backslash escaping
-  - function parameters pass-by-ref, only work for a limited number of args?
+  - switch/case construct
 */
 
 
@@ -1074,6 +1074,7 @@ function jsi_err($s)
 
 
 
+#----------------------------------------------------------------------
 
 
 # executes a block of commands
@@ -1156,6 +1157,7 @@ function jsi_cn_cond(&$bc) {
          if (jsi_expr($bc[$i])) {
             jsi_block($bc[$i+1]);
          }
+         if ($jsi_break && $jsi_break--) { return; }
       }
    }
    #-- while

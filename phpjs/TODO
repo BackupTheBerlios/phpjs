@@ -1,0 +1,11 @@
+- string expansion "...\n...$varname..."
+- objects
+    could be done by injecting [".type"] settings into array variable
+    entries of $js_vars[],
+    and a secondary array would serve as mapping of function name vars
+    to real php/functions again (the object array entry and the type
+    array would simply be merged by jsi_get_var() so the _fcall() needed
+    few changes)
+- function parameters pass-by-ref, only work for a limited number of args?
+
+

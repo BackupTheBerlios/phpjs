@@ -2,7 +2,7 @@
 1 the php javascript interpreter
   ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
 This interpreter provides an EcmaScript like programming language,
-which can safely be embeded into applications for execution of user
+which can safely be embedded into applications for execution of user
 supplied programs. This is possible because the executed code runs
 in a safe sandbox then.
 It is not feature complete and of course slower than running the
@@ -14,7 +14,7 @@ build a compiler!" series, which are still available for download and
 remain the most interesting lecture on that topic (see also UseNet
 group news:comp.compilers).
 
-NOTE: This is still VERY EARLY ALPHA (in development), for the list
+NOTE: This is still VERY EARLY ALPHA (in development). For the list
 of missing features, please see on top of the "js.php" library.
 
 
@@ -488,7 +488,7 @@ Source will initially be transformed into an intermediate representation,
 a parse tree optimizied (or at least suiteable) for quick (or at least
 simple) interpretation (or at least something that way). This "pre-bytecode"
 should be stored for later reuse by the embeding application, to prevent
-reparsing the scripts each times they were to be invoked.
+reparsing the scripts each time they were to be run.
 
 It is possible to optimize the generated pre-bytecode. It is further
 possible to make real bytecode of it (Parrot, P-Code), though that may
@@ -497,7 +497,7 @@ in reality lets the PHP engine do the real work (type handling and
 auto-conversion are almost like in JavaScript), what is rather speedy.
 
 It already features automatic code optimization during run time (the
-pseudo-bytecode gets smaller, whenever the interpreter detects
+pseudo-bytecode gets smaller whenever the interpreter detects
 redundancies).
 
 
@@ -520,11 +520,11 @@ BUFFERED execution was only around 16% FASTER THAN UNBUFFERED
 So the tests revealed not only, that this JavaScript interpreter
 is SlowSlowSlow, but also that PHP 4.3 is the slowest PHP ever.
 
-So it also turned out, that the parser/lexer is in fact much
+And it also turned out, that the parser/lexer is in fact much
 faster than the interpreter (what happens really rarely for
 compiler stuff), in that it only makes 1/6 of the overall execution
 time for a given script. Though the initial tests may again not
-acount for real world applicitons.
+count for real world applicitons.
 
 
 
@@ -571,5 +571,8 @@ acount for real world applicitons.
 - break; statement added
 - faster lexer, more precise token types (separated opening and closing braces)
 - allowed for unary + and - (but very inefficient for constants)
+
+0.01001
+- parameters to registered functions are passed by reference now, generally
 
 

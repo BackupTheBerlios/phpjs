@@ -314,3 +314,156 @@ The parser knowns how to transform constructs like "x += 1" into the
 simpler language constructs the interpreter and bytecode formats allow.
 It even supports a few Pascal-language constructs "x := x + 1" by
 mapping them down to the known constructs again.
+
+
+
+
+---------------------------------------------------------------------------
+
+
+
+how compiler and interpeter work
+¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
+The phpjs interpreter internally pre-converts scripts into a format very
+suitable for quick execution of the defined program structures and its
+associated data (instead of line-by-line matching and execution of
+program source code).
+
+The interpreter part heavily relies upon PHP managing most stuff, but
+it does not let PHP directly execute the generated "bytecode" (which
+actually should be called "parse tree", as it is not a real bytecode).
+
+
+compiling the source code
+¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
+The compilation process consists of separating the input string into
+known language tokens (lexer), and then merging multiple tokens into
+syntactic structures (parser), which finally make up the resulting
+"bytecode". The (here) so called bytecode is in fact only an array of
+arrays, with well-known identifiers the interpreter can more easily
+take care of and can simply run through.
+
+
+lexer
+¯¯¯¯¯
+A "lexer" [see also flex(1)] separates an input stream into small chunks,
+and for example removes unnecassary whitespace from the initial source
+code. The tokens are limited in number and clearly ease the further
+analyzation of program structure.
+
+Tokens are detected with regular expression matching, but types are often
+changed later, after a more in-deep analyzation (or value convertion).
+
+The "parser" then fetches one token after another with jsp_get() from
+the global token variable $tn, which is simply a one-dimensional array
+of token type number (or symbolic names in _DEBUG mode) and their
+original or real (for constants) value.
+
+As an example:
+   array(
+      array(JS_WORD, "a"),
+      array(JS_ASSIGN, "="),
+      array(JS_WORD, "a"),
+      array(JS_OP_PLUS, "+"),
+      array(JS_VALUE, 1.7, JS_REAL),
+      array(JS_END, ";"),
+   )
+corresponded to the initial source code string '  a = a + 1.7;  '
+
+
+parser
+¯¯¯¯¯¯
+The parser works with a simple (one-item) look ahead procedure (it knows
+about the current token $type, and the $next one). This always is
+sufficient to determine the program and expression structure from the
+input token stream ($tn).
+
+   Expression and language construct parsing work a bit differently, in
+   that language construct (if, while, do, ...) analyzation works by
+   examining the $next token type accidently filled into $type - which
+   otherwise hold the current jsp_get() token type.
+
+the expression parsing works as follows:
+- jsp_expr_start() chains to the other expression look-ahead functions
+- the highest _expr parser function actually retrieves the current
+  element and must be a constant or variable or something that way
+- all other _expr functions check for operator characters/tokens around
+  constants or other expression constructs received from above, and else
+  return() to the previous expression parsing functions
+- so every parsing function either generates an array _including_ results
+  from a function it called, or directly returns that result
+- that way a tree (arrays of arrays) is returned, with multiply/division
+  and addition/subtraction expressions grouped into separate array levels
+  automatically (by the way the parser functions call each other)
+
+
+
+the generated "bytecode"
+¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
+The so called "bytecode" in reality is only a parse tree (a real compiler
+would then transform it into flat bytecode or assembler source or even
+machine code). It is an array of arrays, which the interpreter can easily
+traverse in a very functional and recursive fashion (easy! easy! easy!).
+
+In the global '$bc' variable, that always contains that bytecode, you have
+first a level of function name blocks, with the name "." being reserved
+for the main program. Other $bc entries were user defined functions (but
+their names may not always match the function name in the source code).
+
+The interpeter usually starts examing the $bc["."] sub array. An entry
+is often another array, with its first [0] element determining the
+type of function (either an expression or a language construct).
+
+But to simply make an example:
+ $bc["."] = array(
+    0 => array(
+       JS_ASSIGN,
+       array(JS_WORD, "a"),
+       array(
+          JS_MATH,
+          array(JS_WORD, "a"),
+          "+",
+          array(JS_VALUE, 1.7, JS_REAL),
+       ),
+    ),
+    1 => array(
+       JS_RT,
+       JS_PRINT,
+       array(JS_WORD, "a"),
+    ),
+ );
+
+Would correspond to the simple source:
+<code>
+  a = a + 1;     // or simply a++;
+  echo a;
+</code>
+
+You may find it interesting to bail out the generated '$bc' variable
+using PHPs` print_r() function for some of your scripts from time to
+time.
+Note that the bytecode gets optimized (JS_VALUEs are collapsed) after
+the interpreter run it.
+
+
+
+interpreter
+¯¯¯¯¯¯¯¯¯¯¯
+All bytecode pieces either are expressions (JS_MATH, JS_CMP, JS_ASSIGN,
+JS_VALUE, JS_WORD, JS_FCALL, ...) handled by the mighty jsi_expr()
+function, or language constructs (like JS_IF, JS_FOR, ...) where a
+handler exists for each.
+
+The interpeters jsi_block() so simply starts looking at each entry of the
+$bc["."] array, and simply goes down the tree for sub arrays (which often
+were { code blocks } then). The language constructs have a well defined
+number of arguments, and the expressions (often arguments for constructs)
+can be nested without any limit - jsi_expr() takes care of this.
+
+Most expressions are of the JS_MATH token type, and handled in jsi_math().
+But as the parser already separated plus/minus and division/multiply into
+different array levels, they would never occour in one JS_MATH expression
+sub array at the same time. Therefore it is irrelevant that there is
+basically only js_math() and js_cmp() taking care of most expressions.
+
+...

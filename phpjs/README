@@ -21,6 +21,8 @@ security. Speed may in fact suffer (in comparison to native PHP code),
 but reducing the administrators work by allowing feature extension of
 a site by far outweights this.
 
+http://phpjs.berlios.de/
+
 NOTE: This is still VERY EARLY ALPHA (in development). For the list
 of missing features, please see on top of the "js.php" library.
 
@@ -33,33 +35,28 @@ of missing features, please see on top of the "js.php" library.
    1.3   license
    1.4   why?
 
-   2     interfaces
-   2.1   bytecode buffering
-   2.2   constants/settings
+   2     usage overview
+   2.1   interfaces
+   2.2   bytecode buffering
+   2.3   constants/settings
 
    3     extending
    3.1   adding functions
    3.2   adding variables
 
-   4     how it works / internals
-   4.1   parsing
-   4.1.1 lexer
-   4.2   the "bytecode"
-   4.3   interpreter
-
-   5     asorted notes
-   5.1   examples
-   5.2   optimizations
-   5.3   speed comparisions
-   5.4   changelog
+   4     asorted notes
+   4.1   examples
+   4.2   optimizations
+   4.3   speed comparisions
+   4.4   changelog
 
 
 1.2 acknowledgements
     ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
-It makes use of techniques Jack W. Crenshaw layed out in his "Let's
-build a compiler!" series, which are still available for download and
-remain the most interesting lecture on that topic (see also UseNet
-group news:comp.compilers).
+This interpreter makes use of the techniques Jack W. Crenshaw layed out in
+his "Let's build a compiler!" series, which are still available for download
+and remain the most interesting lecture on that topic (see also UseNet group
+news:comp.compilers).
 
 
 1.3 license
@@ -99,14 +96,43 @@ WikiFeatures:AutomaticFeatureInstall and other niceties.
 
 
 
+2 usage overview
+  ¯¯¯¯¯¯¯¯¯¯¯¯¯¯
+The so called interpreter is divided into different parts to make it
+easier to load only the appropriate components when neccessary:
+
+  js.php     the core script holds the minimal configuration and
+             run time settings, required by all other parts
+
+  jsc.php    contains the compiler (lexer, parser), that transforms
+             script source code into 'bytecode'
+
+  jsi.php    is the pure interpreter, which can walk over the bytecode
+             and execute and evaluate all commands and expressions it
+             finds therein
+
+  jsrt.php   runtime environment for the interpreter, must also be
+             loaded to execute scripts; provides interfaces to native
+             PHP functions
+
+  jsa.php    holds the accelerator post-compiler, which transforms the
+             bytecode into sandboxed PHP code that later can be executed
+             without the slower interpreter; does not conflict with jsi,
+             but nevertheless is meant as replacement for it
+
+To execute a script you only need to load the "js.php" script, which
+will automatically load the other four parts for you. (But you could use
+the 'mkbig' utility to join all five into one unified include script.)
+
+The "jsrt.php" is required for both, executing the bytecode via jsi::
+or executing the sandbox code produced by the jsa:: converter.
 
 
-2 interfaces
-  ¯¯¯¯¯¯¯¯¯¯
-The interpreter can be activated through different function calls. There
-are combined feature calls, but the parser and interpreter parts can be
-executed separately.
-
+2.1 interfaces
+    ¯¯¯¯¯¯¯¯¯¯
+The interpreter can be activated through different function calls. You
+can also only run the compiler and accelerator, if you wish; but for
+convinvience you might want to use one of the two combined calls:
 
    js_exec($src)
    -------------
@@ -116,7 +142,6 @@ executed separately.
       Afterwards the "compiled" bytecode from the original script will
       still be in the global '$bc'.
 
-
    $output = js($src)
    ------------------
       Compiles and executes the given script code, but returns its
@@ -124,23 +149,29 @@ executed separately.
       loaded '$bc' would be used instead.
 
       Also this call tries to buffer the bytecode in a compressed (.gz)
-      serialized format. But see the next paragraph, on how to do this
-      on your own.
+      serialized format. But see also JS_CACHE on how to control that.
 
 
-   js_compile($src)
+Compiler and interpreter can also be invoked separately, which may be
+useful for converting a script into bytecode, buffering it and running
+it at a later time (you just needed to load the compiler, and only the
+interpreter the other time).
+
+   jsc::compile($src)
    ----------------
-      Only compiled the given $src code string into the global '$bc'
+      Only compiles the given $src code string into the global '$bc'
       bytecode variable.
 
-
-   jsi_run()
+   jsi::run()
    ---------
       Executes the "bytecode" loaded in the global '$bc' variable. The
       output generated in that script (with print... or document.write)
       would be directly written to stdout/client (itself uses echo). The
       loaded $bc will be more optimized, once the interpreter run on it.
 
+      Beware that the "jsrt.php" script needs to be loaded before you
+      invoke the interpreter, as otherwise no core functions will be
+      available (except "print()" which is a language construct).
 
    jsa::assemble()
    ---------------
@@ -149,8 +180,7 @@ executed separately.
       But please see the "jsa.php" script for that.
 
 
-
-2.1 bytecode buffering
+2.2 bytecode buffering
     ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
 Instead of always passing the js_exec() function a string with source
 code to get executed, you should buffer the generated $bc bytecode and
@@ -181,7 +211,7 @@ or js_block), and afterwards save it. This way you would get the optimized
 code from $bc (which is still available after return from the interpreter).
 
 
-2.2 constants/settings
+2.3 constants/settings
     ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
 There is limited configurability in phpjs, but no real language behaviour
 switch until yet (even if JS_PHPMODE suggests this).
@@ -282,167 +312,12 @@ NOTE: parameter pass-by-ref is planned, but not yet implemented.
 
 
 
-4 how it works / internals
-  ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
-The phpjs interpreter internally pre-converts scripts into a format very
-suitable for quick execution of the defined program structures and its
-associated data (instead of line-by-line matching and execution of
-program source code).
-
-The interpreter part heavily relies upon PHP managing most stuff, but
-it does not let PHP directly execute the generated "bytecode" (which
-actually should be called "parse tree", as it is not a real bytecode).
-
-
-4.1 compiling the source code
-    ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
-The compilation process consists of separating the input string into
-known language tokens (lexer), and then merging multiple tokens into
-syntactic structures (parser), which finally make up the resulting
-"bytecode". The (here) so called bytecode is in fact only an array of
-arrays, with well-known identifiers the interpreter can more easily
-take care of and can simply run through.
-
-
-4.1.1 lexer
-      ¯¯¯¯¯
-A "lexer" [see also flex(1)] separates an input stream into small chunks,
-and for example removes unnecassary whitespace from the initial source
-code. The tokens are limited in number and clearly ease the further
-analyzation of program structure.
-
-Tokens are detected with regular expression matching, but types are often
-changed later, after a more in-deep analyzation (or value convertion).
-
-The "parser" then fetches one token after another with jsp_get() from
-the global token variable $tn, which is simply a one-dimensional array
-of token type number (or symbolic names in _DEBUG mode) and their
-original or real (for constants) value.
-
-As an example:
-   array(
-      array(JS_WORD, "a"),
-      array(JS_ASSIGN, "="),
-      array(JS_WORD, "a"),
-      array(JS_OP_PLUS, "+"),
-      array(JS_VALUE, 1.7, JS_REAL),
-      array(JS_END, ";"),
-   )
-corresponded to the initial source code string '  a = a + 1.7;  '
-
-
-4.1.2 parser
-      ¯¯¯¯¯¯
-The parser works with a simple (one-item) look ahead procedure (it knows
-about the current token $type, and the $next one). This always is
-sufficient to determine the program and expression structure from the
-input token stream ($tn).
-
-   Expression and language construct parsing work a bit differently, in
-   that language construct (if, while, do, ...) analyzation works by
-   examining the $next token type accidently filled into $type - which
-   otherwise hold the current jsp_get() token type.
-
-the expression parsing works as follows:
-- jsp_expr_start() chains to the other expression look-ahead functions
-- the highest _expr parser function actually retrieves the current
-  element and must be a constant or variable or something that way
-- all other _expr functions check for operator characters/tokens around
-  constants or other expression constructs received from above, and else
-  return() to the previous expression parsing functions
-- so every parsing function either generates an array _including_ results
-  from a function it called, or directly returns that result
-- that way a tree (arrays of arrays) is returned, with multiply/division
-  and addition/subtraction expressions grouped into separate array levels
-  automatically (by the way the parser functions call each other)
-
-
-
-4.2 the generated "bytecode"
-    ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
-The so called "bytecode" in reality is only a parse tree (a real compiler
-would then transform it into flat bytecode or assembler source or even
-machine code). It is an array of arrays, which the interpreter can easily
-traverse in a very functional and recursive fashion (easy! easy! easy!).
-
-In the global '$bc' variable, that always contains that bytecode, you have
-first a level of function name blocks, with the name "." being reserved
-for the main program. Other $bc entries were user defined functions (but
-their names may not always match the function name in the source code).
-
-The interpeter usually starts examing the $bc["."] sub array. An entry
-is often another array, with its first [0] element determining the
-type of function (either an expression or a language construct).
-
-But to simply make an example:
- $bc["."] = array(
-    0 => array(
-       JS_ASSIGN,
-       array(JS_WORD, "a"),
-       array(
-          JS_MATH,
-          array(JS_WORD, "a"),
-          "+",
-          array(JS_VALUE, 1.7, JS_REAL),
-       ),
-    ),
-    1 => array(
-       JS_RT,
-       JS_PRINT,
-       array(JS_WORD, "a"),
-    ),
- );
-
-Would correspond to the simple source:
-<code>
-  a = a + 1;     // or simply a++;
-  echo a;
-</code>
-
-You may find it interesting to bail out the generated '$bc' variable
-using PHPs` print_r() function for some of your scripts from time to
-time.
-Note that the bytecode gets optimized (JS_VALUEs are collapsed) after
-the interpreter run it.
-
-
-
-4.3 interpreter
-    ¯¯¯¯¯¯¯¯¯¯¯
-All bytecode pieces either are expressions (JS_MATH, JS_CMP, JS_ASSIGN,
-JS_VALUE, JS_WORD, JS_FCALL, ...) handled by the mighty jsi_expr()
-function, or language constructs (like JS_IF, JS_FOR, ...) where a
-handler exists for each.
-
-The interpeters jsi_block() so simply starts looking at each entry of the
-$bc["."] array, and simply goes down the tree for sub arrays (which often
-were { code blocks } then). The language constructs have a well defined
-number of arguments, and the expressions (often arguments for constructs)
-can be nested without any limit - jsi_expr() takes care of this.
-
-Most expressions are of the JS_MATH token type, and handled in jsi_math().
-But as the parser already separated plus/minus and division/multiply into
-different array levels, they would never occour in one JS_MATH expression
-sub array at the same time. Therefore it is irrelevant that there is
-basically only js_math() and js_cmp() taking care of most expressions.
-
-
-...
-
-
-
-
-
-
-
-
-5 asorted notes
+4 asorted notes
   ¯¯¯¯¯¯¯¯¯¯¯¯¯
 See INTERNALS for more in-deep informations on how phpjs operates.
 
 
-
-5.1 examples
+4.1 examples
     ¯¯¯¯¯¯¯¯
 The interpreter accepts JavaScript-lookalike code:
 
@@ -471,7 +346,7 @@ But please also note the list of missing features on top of the "js.php"
 script.
 
 
-5.2 optimizations
+4.2 optimizations
     ¯¯¯¯¯¯¯¯¯¯¯¯¯
 Source will initially be transformed into an intermediate representation,
 a parse tree optimizied (or at least suiteable) for quick (or at least
@@ -490,7 +365,7 @@ pseudo-bytecode gets smaller whenever the interpreter detects
 redundancies).
 
 
-5.3 speed comparisions
+4.3 speed comparisions
     ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
 The parser in some tests only took around a fifth of the time required
 to execute a script, and the interpreter turned out to be rather fast
@@ -499,7 +374,7 @@ the execution even more. However no meaningful tests have been done
 yet (what was written previously here was far too code specific).
 
 
-5.4 changelog
+4.4 changelog
     ¯¯¯¯¯¯¯¯¯
 0.00001
 - tokenizer and simple expression parsing work
@@ -547,8 +422,14 @@ yet (what was written previously here was far too code specific).
 - parameters to registered functions are passed by reference now, generally
 - fix in JS_IF tree handling (multiple could get executed)
 - introduction of the sandbox code generator jsa::
+- project moved onto BerliOS - http://developer.berlios.de/projects/phpjs
+- almost-PD licensing clearified (Anti-GPL and Pro-LGPL)
 
 0.01010
 - separated out function registrations into 'jsrt.php' for reuse by jsa code
 - split main script into compiler, interpreter and remaining utility code
+- more speaking function names (::assert instead of ::expect, and ::want
+  as new shortcut)
+- added switch/case construct, fix in jsc::constr_break 
+
 

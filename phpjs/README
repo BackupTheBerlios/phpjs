@@ -1,4 +1,10 @@
 
+CURRENT STATE: the jsi:: interpreter is not so useful right now, this
+release enhances the jsa:: part only, and no attention has been brought
+to compatibility yet. So please BEWARE that some things may not work as
+advertised herein.
+
+
 1 the php javascript interpreter
   ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
 This script code "interpreter" provides a JavaScript-like language,
@@ -17,9 +23,11 @@ references.
 Using this technique makes especially sense in high end CMS and
 Hypertext Management Systems (WikiEngines), in that you can plug-in
 any code supplied through open interfaces without affecting server
-security. Speed may in fact suffer (in comparison to native PHP code),
-but reducing the administrators work by allowing feature extension of
-a site by far outweights this.
+security. Server speed may in fact suffer (in comparison to native
+PHP code), so it shouldn't be used for core functionality. It also
+requires additional protections against longer running code loops
+(which are unpredictable or may be maliciously inserted). Otherwise
+there is little drawbacks to native code.
 
 http://phpjs.berlios.de/
 
@@ -69,9 +77,13 @@ also UseNet group news:comp.compilers or http://compilers.iecc.com/crenshaw/
  license shall shape into Public Domain (COMMERCIAL REUSE ALLOWED).
 
  The author prefers GNU LGPL for anything that resembles a library of
- any sort - that's the reasoning for the GPL discriminating rule. But
- please!, simply contact the author for an exception. And please don't
- call this Anti-GPL, even if it is ;)
+ any sort - that's the reasoning for the GPL discrimination rule. But
+ please!, simply contact the author for an exception.
+
+ If it's somewhat more feature-complete, this paragraph gets removed,
+ and the whole thing released as full and no-strings PD. This babbling
+ is all just to prevent premature forks (especially with non-library
+ licenses).
 
  A rewrite of the script in any other programming language (Perl or
  Python e.g.) of course frees it from any licensing issues or previous
@@ -80,8 +92,6 @@ also UseNet group news:comp.compilers or http://compilers.iecc.com/crenshaw/
 
 1.4 why?
     ¯¯¯¯
-Hey, someone just had to do it!  ;)
-
 The initial reasoning for this interpreter was to allow interchanging
 of extension plugins between different WikiEngines, as it was an
 neutral interchange language for the various PHP, Perl and Python
@@ -89,7 +99,9 @@ based implementations.
 
 It should be possible to port this to Perl with ease (and even Python
 seems feasible), once it is running. So this would clearly allow for
-WikiFeatures:AutomaticFeatureInstall and other niceties.
+WikiFeatures:AutomaticFeatureInstall and other niceties. However, how
+long this already has taken to become as minimally useful as it is now,
+there are no plans to relly port it to either language yet.
 
 
 
@@ -113,7 +125,7 @@ easier to load only the appropriate components when neccessary:
 
   jsi.php    is the pure interpreter, which can walk over the bytecode
              and execute and evaluate all commands and expressions it
-             finds therein
+             finds therein - CURRENTLY NOT USEFUL
 
   jsrt.php   runtime environment for the interpreter, must also be
              loaded to execute scripts; provides interfaces to native
@@ -181,11 +193,19 @@ interpreter the other time).
       invoke the interpreter, as otherwise no core functions will be
       available (except "print()" which is a language construct).
 
+A better way to use phpjs is to convert the bytecode into sandboxed PHP
+code after parsing. Executing this sandbox code is safe and a lot faster
+than the older jsi:: interpreter. You have lesser control over how PHP
+interprets the code, but it's nevertheless the preferred method now:
+
    jsa::assemble()
    ---------------
       Converts the loaded $bc[] (or given script source string) into
       sandboxed PHP code for later execution via PHPs eval() construct.
       But please see the "jsa.php" script for that.
+
+There is no js() shortcut for the latter variant, but it's easy to use
+anyhow. See paragraph 2.3 in this README.
 
 
 2.2 bytecode buffering
@@ -274,7 +294,12 @@ JS_FAST_CODE
   which yields larger but more readable bytecode (= eventually slower)
 
 JS_PHPMODE
-  is not used yet
+  is not used yet, won't ever be used, and probably removed in one of the
+  next versions;
+  some PHP and JS constructs are simply too divorced to support both
+  languages at the same time (emulation gets too complicated and error-
+  prone then), so we decided not to keep it PHP compatible (but of a few
+  very simple exceptions)
 
 
 
@@ -465,7 +490,7 @@ yet (what was written previously here was far too code specific).
 - project moved onto BerliOS - http://developer.berlios.de/projects/phpjs
 - almost-PD licensing clearified (Anti-GPL and Pro-LGPL)
 
-0.01010
+0.01010 (= v0.3125)
 - separated out function registrations into 'jsrt.php' for reuse by jsa code
 - split main script into compiler, interpreter and remaining utility code
 - more speaking function names (::assert instead of ::expect, and ::want
@@ -473,3 +498,11 @@ yet (what was written previously here was far too code specific).
 - added switch/case construct, fix in jsc::constr_break 
 - updated documentation
 
+0.01011 (by Eric Anderton)
+- this release enhances the jsa:: part only, the jsi:: falls behind
+- var statement and variable scopes (for a ColdFusion-like markup extension)
+- user function definitions and calls within JS scripts
+- new static class jsrt:: for sandbox (jsa) code enhancements
+- very different sandbox code gets generated (unreadable, eventually
+  slower, but likely more safer than plain PHP translation)
+- rewritten, fixed simple js() exec interface, uses jsa:: if there (Mario)

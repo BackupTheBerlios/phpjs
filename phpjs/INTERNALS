@@ -7,13 +7,13 @@ of it again...
 
 
 
-$js_vars[]
-----------
+$jsi_vars[]
+-----------
 Is an associative array of variables (names mapped to values). It is a
 deeply nested array of arrays for variables that are itself arrays or
 are in a namespace or part of an object instance itself.
 
-Some examples in JS-notation and in the actual $js_vars[] notation:
+Some examples in JS-notation and in the actual $jsi_vars[] notation:
 
    varname                  $js_vars["varname"]
    class.var1               $js_vars["class"]["var1"]
@@ -25,8 +25,8 @@ with the value of an allowed callable function (see $js_funcs[] array)
 associated to it.
 
 
-js_funcs[] array
-----------------
+jsi_funcs[] array
+-----------------
 Contains a list of callable PHP functions. Most mathematical functions
 are safe to be called with unchecked parameters.
 
@@ -34,7 +34,7 @@ are safe to be called with unchecked parameters.
 global variables
 ----------------
 The compiler, the interpreter and the runtime part use other global
-variables as well (some only temporatily though):
+variables as well (some only temporarily though):
 
 jsc::
    $tn - is the list of tokens, the lexigraphic analyzer emitted
@@ -64,7 +64,7 @@ design decisions
 
 JS_* constants
 --------------
-The constants (JS_*) don't need to be defined() explictely, because PHP
+The constants (JS_*) don't need to be defined() explicitely, because PHP
 automatically makes strings of them the first time it sees them bare in
 the code. So leaving out the defines() by setting JS_FAST_CODE to 0,
 will yield far more readable "bytecode"; what OTH is slightly slower
@@ -88,7 +88,7 @@ the bytecode
 ¯¯¯¯¯¯¯¯¯¯¯¯
 The bytecode (always in the global $bc variable) is of course optimized
 for easy evaluation/processing by the interpreter, which itself adapts the
-stream at run time. The parser rearranges the code often to suit the small
+stream at runtime. The parser rearranges the code often to suit the small
 set of supported language constructs (which are simpler than the language
 features).
 
@@ -114,7 +114,7 @@ array entry always identifies (a JS_* constant) the token type.
 Expressions
 ¯¯¯¯¯¯¯¯¯¯¯
 Are the most basic construct in every programming language, and in phpjs
-almost everything can be an expression. Expression usually give a value
+almost everything can be an expression. Expressions usually give a value
 back (regardless if that was used later). Also they are typically nested
 with other expressions.
 
@@ -130,7 +130,7 @@ them to language construct and expression handlers (if there is an
 expression directly in a code block, then it is called a "void expression"
 because the result gets thrown away, typical for JS_ASSIGN).
 
-Also each code block (an array) can nest other code blocks also arrays.
+Also each code block (an array) can nest other code blocks (also arrays).
 That is, if you have something like the following in your code:
 
 {
@@ -197,7 +197,7 @@ return the end result as expression value.
 
 Every value, sub-expression or variable name is separated by an operator
 sign from each other - a JS_MATH typically has at least two sub-expressions,
-but is the number is actually unlimited. The operations +- and */% are
+but the number is actually unlimited. The operations +- and */% are
 separated from each other by the parser already, so that you would never see
 them mixed in one JS_MATH expression array.
 
@@ -267,9 +267,10 @@ bytecode position [2] and the to be executed code block at [3]:
 ...[3] = array( ... )             // a code block
 
 An $bc[1]=JS_DO - loop simply has the condition checked after execution
-of the code block. Whereas an IF is special in that it does not loop and
-could have multiple conditions and code blocks (a tree of them). Only
-one of the code blocks got executed though:
+of the code block.
+Whereas an $bc[1]=JS_IF is special in that it does not loop and could have
+multiple conditions and code blocks (a tree of them). Only one of the code
+blocks got executed though:
 
 ...[0] = JS_COND
 ...[1] = JS_IF
@@ -322,8 +323,8 @@ mapping them down to the known constructs again.
 
 
 
-how compiler and interpeter work
-¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
+how compiler and interpreter work
+¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
 The phpjs interpreter internally pre-converts scripts into a format very
 suitable for quick execution of the defined program structures and its
 associated data (instead of line-by-line matching and execution of
@@ -352,9 +353,9 @@ code. The tokens are limited in number and clearly ease the further
 analyzation of program structure.
 
 Tokens are detected with regular expression matching, but types are often
-changed later, after a more in-deep analyzation (or value convertion).
+changed later, after a more in-deep analyzation (or value conversion).
 
-The "parser" then fetches one token after another with jsp_get() from
+The "parser" then fetches one token after another with jsp::get() from
 the global token variable $tn, which is simply a one-dimensional array
 of token type number (or symbolic names in _DEBUG mode) and their
 original or real (for constants) value.
@@ -394,7 +395,9 @@ the expression parsing works as follows:
   from a function it called, or directly returns that result
 - that way a tree (arrays of arrays) is returned, with multiply/division
   and addition/subtraction expressions grouped into separate array levels
-  automatically (by the way the parser functions call each other)
+  automatically
+- the ordering by which the parser functions may call each other
+  correspond 1:1 to the desired language syntax
 
 
 
@@ -443,27 +446,67 @@ You may find it interesting to bail out the generated '$bc' variable
 using PHPs` print_r() function for some of your scripts from time to
 time.
 Note that the bytecode gets optimized (JS_VALUEs are collapsed) after
-the interpreter run it.
+the interpreter run over it the first time.
 
 
 
 interpreter
 ¯¯¯¯¯¯¯¯¯¯¯
 All bytecode pieces either are expressions (JS_MATH, JS_CMP, JS_ASSIGN,
-JS_VALUE, JS_WORD, JS_FCALL, ...) handled by the mighty jsi_expr()
+JS_VALUE, JS_WORD, JS_FCALL, ...) handled by the mighty jsi::expr()
 function, or language constructs (like JS_IF, JS_FOR, ...) where a
 handler exists for each.
 
-The interpeters jsi_block() so simply starts looking at each entry of the
+The interpeters jsi::block() so simply starts looking at each entry of the
 $bc["."] array, and simply goes down the tree for sub arrays (which often
-were { code blocks } then). The language constructs have a well defined
+were { code blocks } before). The language constructs have a well defined
 number of arguments, and the expressions (often arguments for constructs)
-can be nested without any limit - jsi_expr() takes care of this.
+can be nested without any limit - jsi::expr() takes care of this.
 
-Most expressions are of the JS_MATH token type, and handled in jsi_math().
+Most expressions are of the JS_MATH token type, and handled in jsi::math().
 But as the parser already separated plus/minus and division/multiply into
 different array levels, they would never occour in one JS_MATH expression
 sub array at the same time. Therefore it is irrelevant that there is
-basically only js_math() and js_cmp() taking care of most expressions.
+basically only jsi::math() and jsi::cmp() taking care of most expressions.
 
 ...
+
+
+accelerator
+¯¯¯¯¯¯¯¯¯¯¯
+The accelerator (or "assembler" as we also frequently call it) transforms
+the parse parse tree (which we more blatantly call "bytecode") into PHP
+code, which is safe to execute, because it does never have access to
+global variables or all PHP functions. It instead accesses only variables
+within the $jsi_vars[] array, and functions allowed by the $jsi_funcs[]
+array settings.
+
+Calling jsa::assemble() method simply converts the parse tree back into
+a string of valid PHP code to be executed by the PHP interpreter itself;
+via the "eval()" language construct.
+
+The output changed significantly in version 0.01011 and uses references-
+throwing-around runtime functions now. It previously used the vanilla
+PHP assign = operator for expressions, and translated other JS bytecode
+constructs straight into their equivalents.
+Safetey is however still gained by only outputting escaped variable
+references (into $jsi_vars) and indirect function calls (only emulated
+or allowed ones accessible). The sandbox code cannot trigger PHP
+exceptions as it is clearly structured by how the jsa:: converter nests
+its generation calls recursively (the PHP code generation cannot yield
+invalid code, because of its limited and exactly defined feature set).
+
+Current code is a bit unreadable, and not all eventualities have been
+prove-checked. But we strongly believe, that nothing could go wrong here.
+
+PHP exceptions are impossible with strict code generation and indirect
+and determined function calls. Only sructural code loops (for, while,
+foreach, ...) could halt execution. One must either use PHPs tick()
+feature to slow and stop execution of sandbox code, or stick to injecting
+loop breakers in the jsa:: generation process (NOT YET SUPPORTED, means
+a slow down).
+Division by zero could be a problem, but PHP gracefully handles most of
+these faults.
+
+...
+

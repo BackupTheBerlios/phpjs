@@ -19,7 +19,7 @@ $code = '
 
 ';
 include("js.php");
-js_compile($code);     // parse it
+jsc::compile($code);     // parse it
 
 
 #-- enrich script context

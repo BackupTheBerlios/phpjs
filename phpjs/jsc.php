@@ -1,12 +1,5 @@
 <?php
 /*
-   phpjs compiler (lexer, parser)
-   ------------------------------
-   Converts a given js code string into a parse tree, and stores that
-   in the global $bc variable.
-*/
-
-
     ####   ####  ##   ## ##### #### ##     ###### #####   
    ##  ## ##  ## ### ### ##  ## ##  ##     ##     ##  ##  
    ##     ##  ## ####### ##  ## ##  ##     ##     ##  ##  
@@ -14,8 +7,16 @@
    ##     ##  ## ##   ## ##     ##  ##     ##     ####    
    ##  ## ##  ## ##   ## ##     ##  ##     ##     ## ##   
     ####   ####  ##   ## ##    #### ###### ###### ##  ##  
+
+   phpjs compiler (lexer, parser)
+   ------------------------------
+   Converts a given js code string into a parse tree, and stores that
+   in the global $bc variable.
+*/
+
+
                                                           
-#-- compiler part into its separate namespace
+#-- compiler part into separate namespace
 class jsc {
 
 
@@ -101,6 +102,7 @@ class jsc {
          "elseif" => JS_ELSEIF,
          "switch" => JS_SWITCH,
          "case" => JS_CASE,
+         "default" => JS_DEFAULT,
          "echo" => JS_PRINT,
          "print" => JS_PRINT,
       );
@@ -269,7 +271,7 @@ class jsc {
    #-- compare current token type (and subtype),
    #   put out an error message, if it does not match desired tags
    #   (call this "assert" instead?)
-   function expect($t, $str=false, $caller=false) {
+   function assert($t, $str=false, $caller=false) {
       global $type, $val, $next, $nextval, $jsp_i;
       if (($type != $t) || (is_array($t) && !in_array($type, $t)) ) {
    //           || ($str) && ($val != $str)
@@ -280,6 +282,12 @@ class jsc {
          jsc::err("PARSE ERROR: '$t' expected, but '$type' seen @".($jsp_i-1)
                  . " by $caller");
       }
+   }
+   
+   #-- combined get() and assert()
+   function want($t, $str=false, $caller=false) {
+      jsc::get();
+      jsc::assert($t, $str, $caller);
    }
 
 
@@ -341,7 +349,7 @@ class jsc {
       #-- left side (varname)
       $r = array(JS_ASSIGN);
       $r[] = $var;
-      jsc::expect(JS_ASSIGN, 0, "assign");
+      jsc::assert(JS_ASSIGN, 0, "assign");
 
       #-- combined assignment+operator
       $math = $val[0];
@@ -368,7 +376,7 @@ class jsc {
       jsc::get();
       jsc::append_list($r, JS_BRACE0);
       jsc::get();
-      jsc::expect(JS_BRACE0, ")", "function_call");
+      jsc::assert(JS_BRACE0, ")", "function_call");
       return($r);
    }
 
@@ -378,8 +386,7 @@ class jsc {
       do {
          jsc::get();
          $var[] = jsc::expr_start();
-         jsc::get();
-         jsc::expect(JS_SQBRCKT0, "]", "_array_var");
+         jsc::want(JS_SQBRCKT0, "]", "_array_var");
       }
       while ($next == JS_SQBRCKT1);
    }
@@ -390,7 +397,7 @@ class jsc {
       global $type, $val, $next, $nextval;
 
       if(JS_DEBUG) echo "_VAR\n";
-      jsc::expect(JS_WORD, 0, "var_or_func");
+      jsc::assert(JS_WORD, 0, "var_or_func");
 
       #-- plain var
       $var = array(JS_VAR, $val);
@@ -460,10 +467,9 @@ class jsc {
 
          case JS_BRACE1:
             if(JS_DEBUG) echo "_(\n";
-            jsc::expect(JS_BRACE1, "(", "_expr_value");
+            jsc::assert(JS_BRACE1, "(", "_expr_value");
             $r = jsc::expr_start();
-            jsc::get();
-            jsc::expect(JS_BRACE0, ")", "_expr_value");
+            jsc::want(JS_BRACE0, ")", "_expr_value");
             return($r);
             break;
 
@@ -482,7 +488,7 @@ class jsc {
 
          default:
             if(JS_DEBUG) echo "_CONST\n";
-            jsc::expect(JS_VALUE, 0, "_expr_value");
+            jsc::assert(JS_VALUE, 0, "_expr_value");
             return(array(JS_VALUE, $val));
       }
    }
@@ -625,7 +631,7 @@ class jsc {
       if ($next != JS_END) {
          $r[1] = jsc::expr_start();
       }
-      $bc = $r;
+      $bc[] = $r;
    }
 
 
@@ -634,8 +640,7 @@ class jsc {
 
       #-- remove tokens, get list (<expr>; <expr>; <expr>)
       jsc::get();   # "for"
-      jsc::get();   # "("
-      jsc::expect(JS_BRACE1, "(", "_constr_for0");
+      jsc::want(JS_BRACE1, "(", "_constr_for0");   # "("
       $r = array();
       jsc::append_list($r, JS_BRACE0, JS_END);
       jsc::get();   # remove closing brace
@@ -664,14 +669,12 @@ class jsc {
          #-- remove tokens
          jsc::get();   # "if" or "elseif" or "else"
          $is = $type;
-         jsc::get();   # "("
-         jsc::expect(JS_BRACE1, "(", "_constr_if");
+         jsc::want(JS_BRACE1, "(", "_constr_if");  # "("
 
          #-- generate bc stream
          $r[] = jsc::expr_start();
          $r[] = array();
-         jsc::get();   # ")"
-         jsc::expect(JS_BRACE0, ")", "_constr_if2");
+         jsc::want(JS_BRACE0, ")", "_constr_if2"); # ")"
          jsc::block($r[count($r)-1]);
       }
       
@@ -692,9 +695,8 @@ class jsc {
       global $type, $val, $next, $nextval;
 
       #-- remove tokens
-      jsc::get();   # "while"
-      jsc::get();   # "("
-      jsc::expect(JS_BRACE1, "(", "_constr_while");
+      jsc::want(JS_WHILE);
+      jsc::want(JS_BRACE1, "(", "_constr_while");
 
       #-- while-conditional in bytecode
       $r = array(
@@ -703,8 +705,7 @@ class jsc {
          jsc::expr_start(),
          array()    // placeholder
       );
-      jsc::get();   # ")"
-      jsc::expect(JS_BRACE0, ")", "_constr_while2");
+      jsc::want(JS_BRACE0, ")", "_constr_while2");
       jsc::block($r[3]);
 
       $bc[] = $r;
@@ -723,17 +724,55 @@ class jsc {
       );
       #-- remove tokens
       jsc::get();   # "do"
-      $r[1] = array();
+//      $r[1] = array();
       jsc::block($r[3]);
       #-- while post condition
-      jsc::get();   # "while"
-      jsc::expect(JS_WHILE, false, "_constr_repeat");
-      jsc::get();   # "("
-      jsc::expect(JS_BRACE1, "(", "_constr_repeat2");
+      jsc::want(JS_WHILE, false, "_constr_repeat");
+      jsc::want(JS_BRACE1, "(", "_constr_repeat2");
       $r[2] = jsc::expr_start();
-      jsc::get();   # ")"
-      jsc::expect(JS_BRACE0, ")", "_constr_repeat3");
+      jsc::want(JS_BRACE0, ")", "_constr_repeat3");
       #-- add to parent bytecode stream
+      $bc[] = $r;
+   }
+
+
+   #-- switch() statement
+   function constr_switch(&$bc) {
+      global $type, $val, $next, $nextval;
+      #-- prepare bc stream
+      $r = array(
+         JS_SWITCH,
+         0,        // placeholder for compare-me expression
+      );
+      #-- remove tokens
+      jsc::want(JS_SWITCH);
+      jsc::want(JS_BRACE1);
+      $r[1] = jsc::expr_start();
+      jsc::want(JS_BRACE0);
+      #-- read body
+      jsc::want(JS_CURLYBR1);
+      #-- search for "case" statements
+      $i = 2;
+      do {
+         jsc::get();   # "case" or "}"
+         if ($type == JS_CASE) {
+            //jsc::get();    # ":"
+            $r[$i++] = jsc::expr_start();
+            jsc::want(JS_COLON, ":", "_constr_switch4");
+            jsc::block($r[$i++], array(JS_CASE, JS_DEFAULT, JS_CURLYBR0, JS_END), false);
+         }
+         elseif ($type == JS_DEFAULT) {
+            jsc::want(JS_COLON, ":", "_constr_switch5");
+            $r[$i++] = array(JS_DEFAULT);
+            jsc::block($r[$i++], array(JS_CASE, JS_CURLYBR0, JS_END), false);
+         }
+         else {
+            jsc::err("malformed switch construct");
+         }
+      }
+      while (($type != JS_CURLYBR0) && ($next != JS_EOF));
+      jsc::want(JS_CURLYBR0);
+      #-- end
       $bc[] = $r;
    }
 
@@ -751,9 +790,10 @@ class jsc {
    #-- reads one command/expr/line;
    function code_lines(&$bc, $term=JS_END) {
       global $type, $val, $next, $nextval;
+      $term = (array)$term;
 
       jsc::getnext();
-      while ($type && ($type!=$term)) {
+      while ($type && !in_array($type, $term)) {
 
          switch($type) {
 
@@ -766,6 +806,7 @@ class jsc {
 
             case JS_BREAK:
                jsc::constr_break($bc);
+               break;
 
             case JS_FOR:
                jsc::constr_for($bc);
@@ -779,6 +820,11 @@ class jsc {
                break;
             case JS_DO:
                jsc::constr_do($bc);
+               break;
+
+            case JS_SWITCH:
+               jsc::constr_switch($bc);
+               $type = 900;  // go on
                break;
 
             case JS_PRINT:
@@ -798,6 +844,7 @@ class jsc {
          }
          if ($type==JS_CURLYBR0) {
             jsc::getnext();
+//            echo "going home...";
             return;
          }
 
@@ -807,19 +854,21 @@ class jsc {
 
 
    #-- parses a block of code
-   function block(&$bc, $term=JS_CURLYBR0) {
+   function block(&$bc, $term=JS_CURLYBR0, $need_braces=1) {
       global $type, $val, $next, $nextval;
 
-      jsc::get();
-      jsc::expect(JS_CURLYBR1, "{", "_block_{");
+      if ($need_braces) {
+         jsc::want(JS_CURLYBR1, "{", "_block_{");
+      }
 
       $bc = array();
       jsc::code_lines($bc, $term);
    #echo "_P_BLOCK,$type,$next:\n";
    #print_r($bc);
 
-      jsc::get();
-      jsc::expect(JS_CURLYBR0, "}", "_block_}");
+      if ($need_braces) {
+         jsc::want(JS_CURLYBR0, "}", "_block_}");
+      }
       jsc::getnext();
    }
 

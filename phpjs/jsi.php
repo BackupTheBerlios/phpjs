@@ -89,16 +89,19 @@ class jsi {
                jsi::expr($bc[$pc]);
                break;
             case JS_FOR:
-               jsi::cn_for($bc[$pc]);
+               jsi::constr_for($bc[$pc]);
                break;
             case JS_COND:
-               jsi::cn_cond($bc[$pc]);
+               jsi::constr_cond($bc[$pc]);
+               break;
+            case JS_SWITCH:
+               jsi::constr_switch($bc[$pc]);
                break;
             case JS_RT:
-               jsi::cn_rt($bc[$pc]);
+               jsi::constr_rt($bc[$pc]);
                break;
             case JS_BREAK:
-               jsi::cn_break($bc[$pc]);
+               jsi::constr_break($bc[$pc]);
                break;
             default:
                if (is_array($bc[$pc])) {
@@ -117,12 +120,12 @@ class jsi {
    #-- language constructs
 
 
-   function cn_break(&$bc) {
+   function constr_break(&$bc) {
       global $jsi_break;
       $jsi_break = jsi::expr($bc[1]);
    }
 
-   function cn_for(&$bc) {
+   function constr_for(&$bc) {
       global $jsi_break;
       while ( jsi::expr($bc[1]) ) {
          jsi::block($bc[3]);
@@ -133,7 +136,7 @@ class jsi {
 
 
    #-- conditional statements (if, while, ...)
-   function cn_cond(&$bc) {
+   function constr_cond(&$bc) {
       global $jsi_break;
 
       #-- if/elseif/else
@@ -164,8 +167,29 @@ class jsi {
    }
 
 
+   #-- switch/case constructs
+   function constr_switch(&$bc) {
+      global $jsi_break;
+
+      #-- walk through case expressions
+      $value = jsi::expr($bc[1]);
+      $triggered = 1;
+      for ($i=2; $i<count($bc); $i+=2) {
+         if ($triggered
+         or is_array($bc[$i]) && ($bc[$i][0]==JS_DEFAULT)
+         or ($value == jsi::expr($bc[$i]))) {
+            $triggered = 1;
+         }
+         if ($triggered) {  // execute all code blocks from here until break;
+            jsi::block($bc[$i+1]);
+            if ($jsi_break && $jsi_break--) { return; }
+         }
+      }
+   }
+
+
    #-- runtime functions (pseudo-func calls)
-   function cn_rt(&$bc) {
+   function constr_rt(&$bc) {
       global $jsi_vars;
       $args = array();
       for ($i=2; $i<count($bc); $i++) {

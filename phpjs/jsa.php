@@ -75,16 +75,19 @@ class jsa {
               $o .= jsa::expr($bc[$pc]) . ";\n";
               break;
            case JS_FOR:
-              $o .= jsa::cn_for($bc[$pc]);
+              $o .= jsa::constr_for($bc[$pc]);
               break;
            case JS_COND:
-              $o .= jsa::cn_cond($bc[$pc]);
+              $o .= jsa::constr_cond($bc[$pc]);
+              break;
+           case JS_SWITCH:
+              $o .= jsa::constr_switch($bc[$pc]);
               break;
            case JS_RT:
-              $o .= jsa::cn_rt($bc[$pc]);
+              $o .= jsa::constr_rt($bc[$pc]);
               break;
            case JS_BREAK:
-              $o .= jsa::cn_break($bc[$pc]);
+              $o .= jsa::constr_break($bc[$pc]);
               break;
            default:
               if (is_array($bc[$pc])) {
@@ -105,12 +108,12 @@ class jsa {
    #-- language constructs
 
    #-- break statement
-   function cn_break(&$bc) {
+   function constr_break(&$bc) {
       return(" break $bc[1];\n");
    }
 
    #-- for-loop
-   function cn_for(&$bc) {
+   function constr_for(&$bc) {
       return
          "/* was a FOR-loop */\n"
          . "while (" . jsa::expr($bc[1])  . ") {\n"
@@ -120,7 +123,7 @@ class jsa {
 
 
    #-- conditional loops, code blocks
-   function cn_cond(&$bc) {
+   function constr_cond(&$bc) {
       $o = "";
 
       #-- IF
@@ -146,8 +149,25 @@ class jsa {
    }
 
 
+   #-- switch/case constructs
+   function constr_switch(&$bc) {
+      $o = "switch (" . jsa::expr($bc[1]) . ") {\n";
+      for ($i=2; $i<count($bc); $i+=2) {
+         if (is_array($bc[$i]) && ($bc[$i][0]==JS_DEFAULT)) {
+            $o .= "default:\n";
+         }
+         else {
+            $o .= "case " . jsa::expr($bc[$i]) . ":\n";
+         }
+         $o .= jsa::block($bc[$i+1]);
+      }
+      $o .= "}\n";
+      return $o;
+   }
+
+
    #-- runtime functions (pseudo-func calls)
-   function cn_rt($bc) {
+   function constr_rt($bc) {
       array_shift($bc);
       $func = array_shift($bc);
       $o = "";

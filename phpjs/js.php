@@ -23,16 +23,6 @@
    · jsi::register_func($js_func_name, $php_func)
    · $jsi_vars["varname"] = "value"
    · jsi::run()                             // execute the loaded $bc
-
-
-  things that are not (yet) implemented:
-  -------------------------------------
-  - expressions: (a ? b : c) still missing
-  - function definitions (lambda and usual style)
-  - object contexts and 'new' operator
-  - local variable contexts
-  - string expansion with PHP $variables and backslash escaping
-  - switch/case construct
 */
 
 
@@ -94,6 +84,7 @@ if (JS_FAST_CODE) {
    define("JS_COND",	43);
    define("JS_CASE",	44);
    define("JS_IF",	45);
+   define("JS_DEFAULT",	46);
    define("JS_EOF",	255);
 }
 
@@ -110,17 +101,12 @@ if (JS_FAST_CODE) {
 function js_exec($codestr, $cleanup=0)
 {
     #-- parse code into global $bc
-    js_compile($codestr, $cleanup);
+    jsc::compile($codestr, $cleanup);
 
     #-- run interpreter
     jsi::run();
     //print_r($GLOBALS["bc"]);
     if ($cleanup) { $GLOBALS["bc"] = NULL; }
-}
-
-
-function js_compile($src="", $c=0) {
-   return jsc::compile($src, $c);
 }
 
 
@@ -137,7 +123,7 @@ function js($script=NULL) {
          gzclose($f);
       }
       else {
-         js_compile($script, "_CLEAN=1");
+         jsc::compile($script, "_CLEAN=1");
          $r = js();
          $f = gzopen($md5, "wb");
          fwrite($f, serialize($bc));

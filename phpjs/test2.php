@@ -23,9 +23,8 @@ js_compile($code);     // parse it
 
 
 #-- enrich script context
-jsi_mk_runtime_env();
-jsi_register_func("debug", "jse_debug");
-jsi_block($bc["."]);
+jsi::register_func("debug", "jse_debug");
+jsi::block($bc["."]);
 
 
 #-- js-external funcs

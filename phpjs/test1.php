@@ -8,5 +8,5 @@ js_exec('
 ');
 
 #
-#  Hey, no professional geek would miss that joke!
+# this is always the first example
 ?>

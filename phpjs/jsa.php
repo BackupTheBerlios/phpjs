@@ -1,10 +1,5 @@
 <?php
 /*
-
-   WARNING: this is non-functional currently, just a technology preview
-   like other people would call it ;)
-
-
    phpjs accelerator
    ¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯¯
    This module converts the generated phpjs bytecode into sandboxed
@@ -24,7 +19,7 @@
 */
 
 
-define("JSA_FUNC_PREFIX", "jsa_ufnc_");
+define("JSA_FUNC_PREFIX", "js_ufnc_");
 
 
 #-- everything encapsulated into a static class (a namespace more or less)
@@ -32,7 +27,7 @@ class jsa {
 
 
    #-- transformation starts here
-   function assemble($js_src) {
+   function assemble($js_src="") {
       global $bc;
       
       #-- compile into $bc
@@ -77,7 +72,7 @@ class jsa {
            case JS_CMP:
            case JS_VALUE:
            case JS_VAR:
-              $o .= jsa::expr($bc[$pc]);
+              $o .= jsa::expr($bc[$pc]) . ";\n";
               break;
            case JS_FOR:
               $o .= jsa::cn_for($bc[$pc]);
@@ -152,15 +147,19 @@ class jsa {
 
 
    #-- runtime functions (pseudo-func calls)
-   function cn_rt(&$bc) {
-      $args = get_function_args();
-      array_shift($args);
-      array_shift($args);
-      switch ($bc[1]) {
-         case JS_PRINT:
-            return "print " . implode(", ", $args) . ";\n";
-         default:
+   function cn_rt($bc) {
+      array_shift($bc);
+      $func = array_shift($bc);
+      $o = "";
+      foreach ($bc as $arg) {
+         $arg = jsa::expr($arg);
+         switch ($func) {
+            case JS_PRINT:
+               $o .= "print $arg;\n";
+            default:
+         }
       }
+      return($o);
    }
 
 
@@ -193,19 +192,20 @@ class jsa {
 
 
    #-- turn a function into a safety enhanced PHP code string
-   function jsi_fcall(&$bc)
+   function fcall(&$bc)
    {
       // "$tjfn" stands for temporary-javascript-function-name
       // needs to get more complicated for OO/type features
 
-      $args = array();
-      for ($i=2; isset($bc[2]); $i++) {
+      $args = array(); 
+      for ($i=2; isset($bc[$i]); $i++) {
          $args[] = jsa::expr($bc[$i]);
       }
       $args = implode(", ", $args);
       $pfix = JSA_FUNC_PREFIX;
+      $variable = array(JS_VAR, $bc[1]);
       
-      $o = '(($tjfn = ' . jsa::variable($bc[1])
+      $o = '(($tjfn = ' . jsa::variable($variable)
          . ') ? ('
          . 'in_array($js_funcs, $tjfn) or (strpos($tjfn, '.$pfix.')===0)'
          . ' ? $tjfn('.$args.') : jsrt::error("forbidden function call")'
@@ -216,7 +216,7 @@ class jsa {
 
 
    #-- variable := assignment
-   function jsi_assign(&$bc)
+   function assign(&$bc)
    {
       return
          "(" . jsa::variable($bc[1]) . "=" . jsa::expr($bc[2]) . ")";
@@ -225,7 +225,7 @@ class jsa {
 
 
    #-- evaluate the pre-arranged (parser did it all) expressions
-   function jsi_math(&$bc) {
+   function math(&$bc) {
       $o = "";
    
       #-- walk through contained elements
@@ -254,12 +254,12 @@ class jsa {
          }
       }
 
-      return($o);
+      return "($o)";
    }
 
 
    #-- the magic boolean math
-   function jsi_cmp(&$bc)
+   function cmp(&$bc)
    {
       $op = $bc[2];
       $A = jsa::expr($bc[1]);

@@ -9,3 +9,8 @@
 - function parameters pass-by-ref, only work for a limited number of args?
 
 
+
+future project goals:
+  - make this interpreter run itself
+  - port the Perl operating system ;)
+

@@ -25,6 +25,60 @@ with the value of an allowed callable function (see $js_funcs[] array)
 associated to it.
 
 
+js_funcs[] array
+----------------
+Contains a list of callable PHP functions. Most mathematical functions
+are safe to be called with unchecked parameters.
+
+
+global variables
+----------------
+The compiler, the interpreter and the runtime part use other global
+variables as well (some only temporatily though):
+
+jsc::
+   $tn - is the list of tokens, the lexigraphic analyzer emitted
+   $type,$next,$val,$nextval - contain tokens from the $tn list
+   $jsp_i - counter/position for the token list   
+
+all::
+   $bc - contains the "bytecode" (in reality only a parse tree)
+
+jsi::, jsa::, jsrt::
+   $jsi_vars - global variable scope of the interpreter
+   $jsi_lvars - stack of local variables (inside functions)
+   $jsi_sthis - stack of object references (this.)
+   $jsi_funcs - accessible host interpreter functions
+
+
+design decisions
+----------------
+  - eval() won't be implemented - while it may be possible to make it
+    work with some workarounds for the multiple global variables used
+    by compiler and interpreter
+  - a separate token->lineno association array could be introduced
+    (instead of lineno tokens in the stream), to make error messages
+    more useful to users - but that WOULD MAKE IT SLOWER
+
+
+
+JS_* constants
+--------------
+The constants (JS_*) don't need to be defined() explictely, because PHP
+automatically makes strings of them the first time it sees them bare in
+the code. So leaving out the defines() by setting JS_FAST_CODE to 0,
+will yield far more readable "bytecode"; what OTH is slightly slower
+(and therefore disabled per default).
+
+The assigned integers have no special meaning or ordering, that's why
+the bytecode gets obsolete whenever you upgrade (new supported language
+constructs frequently require updating the randomly associated numbers).
+
+Some token names are only used in the parser/tokenizer but most identify
+language constructs for the interpreter.
+
+
+
 
 ----------------------------------------------------------------------------
 
@@ -32,11 +86,11 @@ associated to it.
 
 the bytecode
 ¯¯¯¯¯¯¯¯¯¯¯¯
-All the "JS_*" defines() on top of the compiler script part just give
-(source-code-wise) meaningful names to the integer numbers associated
-to each type of language tokesn. Some token names are only used in the
-parser/tokenizer but most identify language constructs for the
-interpreter.
+The bytecode (always in the global $bc variable) is of course optimized
+for easy evaluation/processing by the interpreter, which itself adapts the
+stream at run time. The parser rearranges the code often to suit the small
+set of supported language constructs (which are simpler than the language
+features).
 
 The $bc array is first divided into all defined functions and the
 main code block identified as "."
@@ -102,6 +156,31 @@ expression like JS_MATH.
 ...[0] = JS_ASSIGN
 ...[1] = array( JS_VAR, "variable_name")
 ...[2] = array( JS_VALUE, 17.222);
+
+
+Variables
+---------
+Variable names are packaged into their own sub-array to make them
+distinguishable from plain values, which often appear randomly in
+the $bc stream. Each variable token has at least a variable name,
+but can have multiple array index postfixes (itself expressions,
+most of the time being plain values).
+
+...[0] = JS_VAR
+...[1] = "varname"
+
+or something like
+
+...[0] = JS_VAR            // corresponds to "objectname.var"
+...[1] = "objectname"
+...[2] = "var"
+
+or for real arrays
+
+...[0] = JS_VAR            // parse tree of "$arrayname[2][$i]"
+...[1] = "arrayname"
+...[2] = array(JS_VALUE, 2, JS_INT)
+...[3] = array(JS_VAR, "i")
 
 
 Math expressions
@@ -229,3 +308,9 @@ an optional count parameter:
 ...[1] = 1                     // is set to 1 normally
 
 
+syntax conversion
+-----------------
+The parser knowns how to transform constructs like "x += 1" into the
+simpler language constructs the interpreter and bytecode formats allow.
+It even supports a few Pascal-language constructs "x := x + 1" by
+mapping them down to the known constructs again.

@@ -9,13 +9,13 @@
 
    You need both "js.php" and "jsa.php" loaded at compile time. Use
    it this way:
-   - $php_code = jsa::assemble($js_source_code);
+    - $php_code = jsa::assemble();
+    - $php_code = jsa::assemble($js_source_code);  // this only works,
+                          // if the compiler "jsc.php" is also present
    
-   Somewhen later a "jsrt.php" will be available to only provide the
-   runtime dependencies for the sandboxed PHP code emitted by this
-   accelerator.
-   - jsrt::exec($php_code);
-   For now, just use the jsi_mk_runtime_env() and eval($php_code).
+   To actually execute the generated $php_code somewhen later, you also (or
+   only) need to have the "jsrt.php" part loaded:
+    - eval($php_code);
 */
 
 

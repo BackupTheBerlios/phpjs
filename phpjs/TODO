@@ -1,16 +1,23 @@
-- string expansion "...\n...$varname..."
-- objects
-    could be done by injecting [".type"] settings into array variable
-    entries of $js_vars[],
-    and a secondary array would serve as mapping of function name vars
-    to real php/functions again (the object array entry and the type
-    array would simply be merged by jsi_get_var() so the _fcall() needed
-    few changes)
-- function parameters pass-by-ref, only work for a limited number of args?
-
-
-
-future project goals:
-  - make this interpreter run itself
-  - port the Perl operating system ;)
-
+- still missing expressions:
+   - (a ? b : c)
+   - function definitions
+   - lambda functions
+- string expansion with PHP "...$variables...\n..." and backslash escaping
+   - neded to take place soley in the parser
+   - but only for scalar variables
+- local variable contexts
+   - $jsi_lvars and $jsi_lvarstack
+- object contexts and 'new' operator
+    - could be done by injecting [".type"] settings into array variable
+      entries of $js_vars[],
+    - and a secondary array would serve as mapping of function name vars
+      to real php/functions again (the object array entry and the type
+      array would simply be merged by jsi_get_var() so the _fcall() needed
+      few changes)
+    - gettype() would provide fallback information for standard variable
+      types and so allow support for String.*() and Integer.*() methods
+- function parameters pass-by-ref, only work for a limited number of
+  arguments currently?
+- future project goals:
+   - make this interpreter run itself
+   - port the Perl operating system ;)
